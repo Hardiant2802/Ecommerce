@@ -42,8 +42,8 @@ services:
       --optimizer_use_condition_selectivity=1
       --optimizer_switch="rowid_filter=off"
       --log_bin_trust_function_creators=1
-    ports:
-      - "3306:3306"
+    #ports:
+    #  - "3306:3306"
     env_file: env/db.env
     volumes:
       - dbdata:/var/lib/mysql
@@ -63,8 +63,8 @@ services:
 
   redis:
     image: valkey/valkey:8.1-alpine
-    ports:
-      - "6379:6379"
+    #ports:
+    #  - "6379:6379"
 
   ## If you wish to use Redis, comment out the redis image above and
   ## uncomment this block.
@@ -75,9 +75,9 @@ services:
 
   opensearch:
     image: markoshust/magento-opensearch:2.12-0
-    ports:
-      - "9200:9200"
-      - "9300:9300"
+    #ports:
+    #  - "9200:9200"
+    #  - "9300:9300"
     env_file: env/opensearch.env
     environment:
       - "discovery.type=single-node"
@@ -116,17 +116,17 @@ services:
 
   rabbitmq:
     image: markoshust/magento-rabbitmq:4.1-0
-    ports:
-      - "15672:15672"
-      - "5672:5672"
+    #ports:
+    #  - "15672:15672"
+    #  - "5672:5672"
     volumes:
       - rabbitmqdata:/var/lib/rabbitmq
     env_file: env/rabbitmq.env
 
   mailcatcher:
     image: sj26/mailcatcher:v0.10.0
-    ports:
-      - "1080:1080"
+    #ports:
+    #  - "1080:1080"
 
   ## Cloudflare tunnel support, uncomment to enable
   #tunnel:
