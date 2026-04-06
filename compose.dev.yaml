@@ -13,6 +13,7 @@ services:
       - ./src/nginx.conf.sample:/var/www/html/nginx.conf:cached
       - ./src/package.json.sample:/var/www/html/package.json:cached
       - ./src/generated:/var/www/html/generated:cached
+      - ./src/pub/static:/var/www/html/pub/static:cached
       - ./src/var:/var/www/html/var:cached
       #- ./src/auth.json:/var/www/html/auth.json:cached
       #- ./src/m2-hotfixes:/var/www/html/m2-hotfixes:cached
@@ -24,8 +25,8 @@ services:
   phpmyadmin:
     image: linuxserver/phpmyadmin
     env_file: env/db.env
-    #ports:
-    #  - "8080:80"
+    ports:
+      - "8080:80"
     depends_on:
       - db
 
