@@ -24,7 +24,7 @@ export default function FeaturedProducts() {
         query: GET_PRODUCTS,
         variables: {
           pageSize: 4,
-          search: "", // Use empty search to get all products
+          search: "", 
         },
         cache: 'no-store',
       });
@@ -62,7 +62,7 @@ export default function FeaturedProducts() {
           href={`/products/${product.url_key}`}
           className="group"
         >
-          <div className="card hover:shadow-lg transition-shadow">
+          <div className="card hover:shadow-lg transition-shadow bg-white rounded-lg overflow-hidden">
             <div className="aspect-square bg-gray-100 relative overflow-hidden">
               {product.small_image?.url ? (
                 <img
@@ -77,13 +77,14 @@ export default function FeaturedProducts() {
               )}
             </div>
             <div className="p-4">
-              <h3 className="font-semibold text-lg mb-2 group-hover:text-primary-600 transition-colors line-clamp-2">
+              <h3 className="font-semibold text-lg mb-2 group-hover:text-primary-600 transition-colors line-clamp-2 text-gray-900">
                 {product.name}
               </h3>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold text-primary-600">
-                  ${product.price?.finalPrice?.amount?.value?.toFixed(2) || 
-                    product.price?.regularPrice?.amount?.value?.toFixed(2) || 
+                  {/* ĐÃ SỬA LẠI THÀNH CHUẨN MAGENTO PRICE_RANGE Ở ĐÂY */}
+                  ${product.price_range?.minimum_price?.final_price?.value?.toFixed(2) || 
+                    product.price_range?.minimum_price?.regular_price?.value?.toFixed(2) || 
                     '0.00'}
                 </span>
               </div>

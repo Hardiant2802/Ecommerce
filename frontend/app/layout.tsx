@@ -9,11 +9,15 @@ import Footer from '@/components/layout/Footer';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'Mobile City - Điện thoại, Laptop, Tablet chính hãng',
-  description: 'Mua điện thoại, laptop, tablet, phụ kiện chính hãng, giá tốt nhất. iPhone, Samsung, Xiaomi, OPPO, Vivo. Giao hàng nhanh toàn quốc.',
-  keywords: ['điện thoại', 'mobile', 'smartphone', 'iPhone', 'Samsung', 'Xiaomi', 'laptop', 'tablet'],
+  title: 'AH Phone Store - Điện thoại chính hãng',
+  description: 'Mua bán điện thoại chính hãng, giá tốt nhất. Iphone, Samsung, Xiaomi, OPPO, Vivo, Asus, Red Magic. Giao hàng nhanh toàn quốc.',
+  keywords: ['điện thoại', 'mobile', 'smartphone', 'Iphone', 'Samsung', 'Xiaomi', 'Oppo', 'Vivo', 'Asus', 'Red Magic'],
+  icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+  },
   openGraph: {
-    title: 'Mobile City - Điện thoại chính hãng',
+    title: 'AH Phone Store - Điện thoại chính hãng',
     description: 'Mua điện thoại chính hãng giá tốt nhất',
     type: 'website',
   },

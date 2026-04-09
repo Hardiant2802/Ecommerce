@@ -17,6 +17,19 @@ export interface Product {
       };
     };
   };
+
+  price_range?: {
+    minimum_price?: {
+      regular_price?: {
+        value: number;
+        currency: string;
+      };
+      final_price?: {
+        value: number;
+        currency: string;
+      };
+    };
+  };
   image: {
     url: string;
     label: string;
