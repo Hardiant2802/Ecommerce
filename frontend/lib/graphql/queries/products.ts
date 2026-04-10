@@ -20,6 +20,7 @@ export const GET_PRODUCTS = `
         sku
         name
         url_key
+        updated_at
         stock_status
         price_range {
           minimum_price {
@@ -33,13 +34,15 @@ export const GET_PRODUCTS = `
             }
           }
         }
-        small_image {
+        image {
           url
           label
         }
-        thumbnail {
+        media_gallery {
           url
           label
+          position
+          disabled
         }
       }
       page_info {
@@ -60,6 +63,7 @@ export const GET_PRODUCT_DETAIL = `
         sku
         name
         url_key
+        updated_at
         stock_status
         price_range {
           minimum_price {
@@ -77,24 +81,17 @@ export const GET_PRODUCT_DETAIL = `
           url
           label
         }
-        small_image {
+        media_gallery {
           url
           label
-        }
-        thumbnail {
-          url
-          label
+          position
+          disabled
         }
         description {
           html
         }
         short_description {
           html
-        }
-        media_gallery {
-          url
-          label
-          position
         }
         categories {
           id
@@ -131,6 +128,7 @@ export const SEARCH_PRODUCTS = `
         sku
         name
         url_key
+        updated_at
         price_range {
           minimum_price {
             regular_price {
@@ -139,9 +137,15 @@ export const SEARCH_PRODUCTS = `
             }
           }
         }
-        thumbnail {
+        image {
           url
           label
+        }
+        media_gallery {
+          url
+          label
+          position
+          disabled
         }
       }
       total_count

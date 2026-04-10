@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_PRODUCT_DETAIL } from '@/lib/graphql/queries/products';
 import { formatPrice } from '@/lib/utils/formatters';
+import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import Button from '@/components/ui/Button';
 import { useCart } from '@/lib/hooks';
 
@@ -39,7 +40,9 @@ interface Product {
     url: string;
     label: string;
     position: number;
+    disabled?: boolean;
   }>;
+  updated_at?: string;
   stock_status?: string;
 }
 
@@ -48,7 +51,6 @@ export default function ProductDetailPage() {
   const slug = params.slug as string;
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
   const { addToCart } = useCart();
@@ -127,7 +129,8 @@ export default function ProductDetailPage() {
 
   const price = product.price_range.minimum_price.final_price || 
     product.price_range.minimum_price.regular_price;
-  const images = product.media_gallery || (product.image ? [product.image] : []);
+  const imageUrl = getPrimaryProductImageUrl(product);
+  const imageLabel = product.media_gallery?.[0]?.label || product.image?.label || product.name;
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 
   return (
@@ -137,39 +140,16 @@ export default function ProductDetailPage() {
           <div className="grid md:grid-cols-2 gap-8 p-6 md:p-8">
             {/* Images */}
             <div>
-              {images.length > 0 && (
-                <>
-                  <div className="aspect-square relative bg-gray-100 rounded-lg overflow-hidden mb-4">
-                    <Image
-                      src={images[selectedImage].url}
-                      alt={images[selectedImage].label || product.name}
-                      fill
-                      className="object-cover"
-                      priority
-                    />
-                  </div>
-                  {images.length > 1 && (
-                    <div className="grid grid-cols-4 gap-2">
-                      {images.map((img, index) => (
-                        <button
-                          key={index}
-                          onClick={() => setSelectedImage(index)}
-                          className={`aspect-square relative bg-gray-100 rounded-lg overflow-hidden ${
-                            selectedImage === index ? 'ring-2 ring-primary-600' : ''
-                          }`}
-                        >
-                          <Image
-                            src={img.url}
-                            alt={img.label || `Image ${index + 1}`}
-                            fill
-                            className="object-cover"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+              <div className="aspect-square relative bg-gray-100 rounded-lg overflow-hidden mb-4">
+                <Image
+                  src={imageUrl}
+                  alt={imageLabel}
+                  fill
+                  className="object-cover"
+                  priority
+                  unoptimized
+                />
+              </div>
             </div>
 
             {/* Product Info */}

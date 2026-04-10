@@ -50,8 +50,6 @@ export default function MobileCityHeader() {
               <div className="flex items-center space-x-6">
                 <Link href="/news" className="hover:underline">TIN TỨC</Link>
                 <span className="text-gold-light">|</span>
-                <Link href="/events" className="hover:underline">EVENTS</Link>
-                <span className="text-gold-light">|</span>
                 <Link href="/warranty" className="hover:underline">TRA CỨU BH</Link>
               </div>
               <div className="flex items-center space-x-4">

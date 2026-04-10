@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { formatPrice } from '@/lib/utils/formatters';
+import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import Button from '@/components/ui/Button';
 import { useCart } from '@/lib/hooks';
 import { useState } from 'react';
@@ -24,14 +25,17 @@ interface ProductCardProps {
         };
       };
     };
-    small_image?: {
+    image?: {
       url: string;
       label: string;
     };
-    thumbnail?: {
+    media_gallery?: Array<{
       url: string;
       label: string;
-    };
+      position: number;
+      disabled?: boolean;
+    }>;
+    updated_at?: string;
     stock_status?: string;
   };
 }
@@ -43,7 +47,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   const price = product.price_range.minimum_price.final_price || 
     product.price_range.minimum_price.regular_price;
   
-  const imageUrl = product.small_image?.url || product.thumbnail?.url || '/images/placeholder.jpg';
+  const imageUrl = getPrimaryProductImageUrl(product);
   const productUrl = `/product/${product.url_key || product.sku}`;
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 

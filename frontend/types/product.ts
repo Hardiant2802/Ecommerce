@@ -3,6 +3,7 @@ export interface Product {
   id: string;
   sku: string;
   name: string;
+  updated_at?: string;
   price: {
     regularPrice: {
       amount: {
@@ -30,29 +31,22 @@ export interface Product {
       };
     };
   };
-  image: {
+  image?: {
     url: string;
     label: string;
   };
-  small_image?: {
+  media_gallery?: Array<{
     url: string;
     label: string;
-  };
-  thumbnail?: {
-    url: string;
-    label: string;
-  };
+    position: number;
+    disabled?: boolean;
+  }>;
   description?: {
     html: string;
   };
   short_description?: {
     html: string;
   };
-  media_gallery?: Array<{
-    url: string;
-    label: string;
-    position: number;
-  }>;
   stock_status?: string;
   categories?: Category[];
   url_key?: string;

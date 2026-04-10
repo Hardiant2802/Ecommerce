@@ -18,11 +18,7 @@ interface Product {
       };
     };
   };
-  small_image?: {
-    url: string;
-    label: string;
-  };
-  thumbnail?: {
+  image?: {
     url: string;
     label: string;
   };
