@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -o errexit
+
+bin/docker-compose stop tunnel || true
+bin/docker-compose rm -f tunnel || true

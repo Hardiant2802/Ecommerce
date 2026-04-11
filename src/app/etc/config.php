@@ -342,7 +342,7 @@ return [
         'Magento_AdminAdobeImsTwoFactorAuth' => 0,
         'Magento_GoogleOptimizer' => 1,
         'Magento_Ups' => 1,
-        'Magento_SampleData' => 1,
+        'Magento_SampleData' => 0,
         'Magento_CatalogUrlRewriteGraphQl' => 1,
         'Magento_Stomp' => 1,
         'Magento_Usps' => 1,
@@ -365,6 +365,46 @@ return [
         'PayPal_BraintreeGiftCardAccount' => 1,
         'PayPal_BraintreeGiftWrapping' => 1,
         'PayPal_BraintreeGraphQl' => 1,
-        'PayPal_BraintreeReward' => 1
+        'PayPal_BraintreeReward' => 1,
+        'TMDT_Bai1' => 1,
+        'TMDT_Bai2' => 1
+    ],
+    'themes' => [
+        'frontend/Magento/blank' => [
+            'parent_id' => null,
+            'theme_path' => 'Magento/blank',
+            'theme_title' => 'Magento Blank',
+            'is_featured' => '0',
+            'area' => 'frontend',
+            'type' => '0',
+            'code' => 'Magento/blank'
+        ],
+        'adminhtml/Magento/backend' => [
+            'parent_id' => null,
+            'theme_path' => 'Magento/backend',
+            'theme_title' => 'Magento 2 backend',
+            'is_featured' => '0',
+            'area' => 'adminhtml',
+            'type' => '0',
+            'code' => 'Magento/backend'
+        ],
+        'frontend/Magento/luma' => [
+            'parent_id' => 'Magento/blank',
+            'theme_path' => 'Magento/luma',
+            'theme_title' => 'Magento Luma',
+            'is_featured' => '0',
+            'area' => 'frontend',
+            'type' => '0',
+            'code' => 'Magento/luma'
+        ],
+        'frontend/Custom/mobilecity' => [
+            'parent_id' => 'Magento/luma',
+            'theme_path' => 'Custom/mobilecity',
+            'theme_title' => 'MobileCity Theme',
+            'is_featured' => '0',
+            'area' => 'frontend',
+            'type' => '1',
+            'code' => 'Custom/mobilecity'
+        ]
     ]
 ];
