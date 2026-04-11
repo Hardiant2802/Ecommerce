@@ -342,7 +342,7 @@ return [
         'Magento_AdminAdobeImsTwoFactorAuth' => 0,
         'Magento_GoogleOptimizer' => 1,
         'Magento_Ups' => 1,
-        'Magento_SampleData' => 1,
+        'Magento_SampleData' => 0,
         'Magento_CatalogUrlRewriteGraphQl' => 1,
         'Magento_Stomp' => 1,
         'Magento_Usps' => 1,

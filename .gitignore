@@ -1,2 +1,5 @@
 rootCA.pem
 .vscode/
+template/dev/team-data/*
+!template/dev/team-data/.gitkeep
+env/cloudflare.local.env

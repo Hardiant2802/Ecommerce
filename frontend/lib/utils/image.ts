@@ -13,7 +13,7 @@ interface ProductImageSource {
 
 export function withImageVersion(url?: string, version?: string): string {
   if (!url) {
-    return '/images/placeholder.jpg';
+    return '/images/placeholder.svg';
   }
 
   let normalizedUrl = url;
@@ -57,6 +57,14 @@ export function getPrimaryProductImageUrl(product: ProductImageSource): string {
     .filter((item) => Boolean(item?.url) && !item?.disabled)
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-  const sourceUrl = gallery[gallery.length - 1]?.url || product.image?.url;
+  const roleImageUrl = product.image?.url;
+  const roleIsPlaceholder = Boolean(
+    roleImageUrl && roleImageUrl.includes('/Magento_Catalog/images/product/placeholder/')
+  );
+
+  const sourceUrl = !roleIsPlaceholder && roleImageUrl
+    ? roleImageUrl
+    : (gallery[0]?.url || roleImageUrl);
+
   return withImageVersion(sourceUrl, product.updated_at);
 }

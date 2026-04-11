@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OUT_DIR="${1:-$ROOT_DIR/template/dev/team-data}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+
+DB_FILE="$OUT_DIR/magento-db-$STAMP.sql.gz"
+MEDIA_FILE="$OUT_DIR/magento-media-$STAMP.tar.gz"
+MANIFEST_FILE="$OUT_DIR/manifest-$STAMP.txt"
+
+mkdir -p "$OUT_DIR"
+
+echo "[1/3] Exporting Magento database to $DB_FILE"
+bin/mysqldump --strip="@development" | gzip -9 > "$DB_FILE"
+
+echo "[2/3] Exporting product media to $MEDIA_FILE"
+if [ -d "$ROOT_DIR/src/pub/media/catalog/product" ]; then
+  tar -C "$ROOT_DIR/src/pub/media" -czf "$MEDIA_FILE" catalog/product
+else
+  echo "No product media folder found. Creating empty archive."
+  tar -C "$ROOT_DIR/src/pub/media" -czf "$MEDIA_FILE" --files-from /dev/null
+fi
+
+echo "[3/3] Writing manifest"
+cat > "$MANIFEST_FILE" <<EOF
+created_at=$STAMP
+database_dump=$(basename "$DB_FILE")
+media_archive=$(basename "$MEDIA_FILE")
+EOF
+
+cp "$DB_FILE" "$OUT_DIR/latest-db.sql.gz"
+cp "$MEDIA_FILE" "$OUT_DIR/latest-media.tar.gz"
+cp "$MANIFEST_FILE" "$OUT_DIR/latest-manifest.txt"
+
+echo "Done."
+echo "Database: $DB_FILE"
+echo "Media:    $MEDIA_FILE"
+echo "Latest aliases updated in: $OUT_DIR"

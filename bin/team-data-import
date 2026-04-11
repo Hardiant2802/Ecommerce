@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+IN_DIR="${1:-$ROOT_DIR/template/dev/team-data}"
+DB_FILE="$IN_DIR/latest-db.sql.gz"
+MEDIA_FILE="$IN_DIR/latest-media.tar.gz"
+
+if [ ! -f "$DB_FILE" ]; then
+  echo "Missing database snapshot: $DB_FILE"
+  echo "Run bin/team-data-export on source machine first."
+  exit 1
+fi
+
+if [ ! -f "$MEDIA_FILE" ]; then
+  echo "Missing media snapshot: $MEDIA_FILE"
+  echo "Run bin/team-data-export on source machine first."
+  exit 1
+fi
+
+echo "[1/5] Importing database from $DB_FILE"
+gzip -dc "$DB_FILE" | bin/mysql
+
+echo "[2/5] Replacing product media folder"
+rm -rf "$ROOT_DIR/src/pub/media/catalog/product"
+mkdir -p "$ROOT_DIR/src/pub/media"
+tar -C "$ROOT_DIR/src/pub/media" -xzf "$MEDIA_FILE"
+
+echo "[3/5] Fixing ownership and permissions"
+bin/fixowns pub/media/catalog/product
+bin/fixperms pub/media/catalog/product
+
+echo "[4/5] Reindexing Magento"
+bin/magento indexer:reindex
+
+echo "[5/5] Flushing cache"
+bin/magento cache:flush
+
+echo "Import completed."

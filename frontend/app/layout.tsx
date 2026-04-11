@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { Suspense } from 'react';
 import './globals.css';
 import { CartProvider } from '@/context/CartContext';
 import { AuthProvider } from '@/context/AuthContext';
@@ -34,7 +35,9 @@ export default function RootLayout({
         <AuthProvider>
           <CartProvider>
             <div className="flex flex-col min-h-screen">
-              <MobileCityHeader />
+              <Suspense fallback={null}>
+                <MobileCityHeader />
+              </Suspense>
               <main className="flex-grow bg-gray-50">
                 {children}
               </main>

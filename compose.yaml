@@ -128,12 +128,16 @@ services:
     #ports:
     #  - "1080:1080"
 
-  ## Cloudflare tunnel support, uncomment to enable
-  #tunnel:
-  #  container_name: cloudflared-tunnel
-  #  image: cloudflare/cloudflared:latest
-  #  command: tunnel run
-  #  env_file: env/cloudflare.env
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    env_file: env/cloudflare.env
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - tunnel
 
   ## Blackfire support, uncomment to enable
   #blackfire:

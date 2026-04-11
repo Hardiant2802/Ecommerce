@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ProductGrid from '@/components/product/ProductGrid';
 import { graphqlClient } from '@/lib/graphql/client';
-import { GET_PRODUCTS } from '@/lib/graphql/queries/products';
+import { GET_CATEGORY_BY_URL_KEY, GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { SORT_OPTIONS } from '@/constants/categories';
 
 interface Product {
@@ -31,32 +31,83 @@ interface Product {
   stock_status?: string;
 }
 
+interface CategoryLookupResult {
+  categories: {
+    items: Array<{
+      id: string;
+      name: string;
+      url_key: string;
+      url_path?: string;
+    }>;
+  };
+}
+
 export default function ProductsPage() {
+  const PAGE_SIZE = 24;
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState('position');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   
   const category = searchParams.get('category');
+  const brand = searchParams.get('brand');
+  const search = searchParams.get('search');
+
+  const BRAND_LABELS: Record<string, string> = {
+    apple: 'Apple',
+    samsung: 'Samsung',
+    xiaomi: 'Xiaomi',
+    oppo: 'Oppo',
+    oneplus: 'One Plus',
+    vivo: 'Vivo',
+    asus: 'Asus',
+    'red-magic': 'Red Magic',
+  };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [category, brand, search, sortBy]);
 
   useEffect(() => {
     loadProducts();
-  }, [category, sortBy]);
+  }, [category, brand, search, sortBy, currentPage]);
 
   const loadProducts = async () => {
     setLoading(true);
     try {
       const variables: any = {
-        pageSize: 12,
-        currentPage: 1,
+        pageSize: PAGE_SIZE,
+        currentPage,
       };
 
-      // Add category filter if present, otherwise use empty search to get all products
-      if (category) {
-        variables.filter = {
-          category_url_key: { eq: category }
-        };
-      } else {
+      // Resolve slug -> category_id because Magento schema in this project
+      // does not support category_url_key in ProductAttributeFilterInput.
+      const categorySlug = brand || category;
+      if (categorySlug) {
+        const categoryData = await graphqlClient<CategoryLookupResult>({
+          query: GET_CATEGORY_BY_URL_KEY,
+          variables: { urlKey: categorySlug },
+          cache: 'no-store',
+        });
+
+        const matchedCategory = categoryData.categories.items[0];
+        if (matchedCategory) {
+          variables.filter = {
+            category_id: { eq: matchedCategory.id }
+          };
+        } else {
+          setProducts([]);
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (search) {
+        variables.search = search;
+      } else if (!categorySlug) {
         // Magento requires either search or filter, so we use empty search to get all products
         variables.search = "";
       }
@@ -73,6 +124,11 @@ export default function ProductsPage() {
       const data = await graphqlClient<{
         products: {
           items: Product[];
+          total_count: number;
+          page_info: {
+            total_pages: number;
+            current_page: number;
+          };
         };
       }>({
         query: GET_PRODUCTS,
@@ -81,6 +137,8 @@ export default function ProductsPage() {
       });
 
       setProducts(data.products.items);
+      setTotalCount(data.products.total_count || 0);
+      setTotalPages(data.products.page_info?.total_pages || 1);
     } catch (error) {
       console.error('Failed to load products:', error);
     } finally {
@@ -88,9 +146,11 @@ export default function ProductsPage() {
     }
   };
 
-  const categoryName = category 
-    ? category.charAt(0).toUpperCase() + category.slice(1)
-    : 'All Products';
+  const categoryName = brand
+    ? (BRAND_LABELS[brand] || brand)
+    : category
+      ? category.charAt(0).toUpperCase() + category.slice(1)
+      : 'All Products';
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -104,7 +164,7 @@ export default function ProductsPage() {
           {/* Filters */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <p className="text-gray-600">
-              {loading ? 'Loading...' : `${products.length} products`}
+              {loading ? 'Loading...' : `${totalCount} products`}
             </p>
             
             <div className="flex items-center gap-2">
@@ -126,6 +186,30 @@ export default function ProductsPage() {
 
         {/* Products Grid */}
         <ProductGrid products={products} loading={loading} />
+
+        {!loading && totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 mt-8">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 rounded-md border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-gray-700">
+              Page {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 rounded-md border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+            >
+              Next
+            </button>
+          </div>
+        )}
 
         {/* Empty State */}
         {!loading && products.length === 0 && (

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -o errexit
+
+TOKEN_FILE="env/cloudflare.local.env"
+if [ ! -f "$TOKEN_FILE" ]; then
+  TOKEN_FILE="env/cloudflare.env"
+fi
+
+if [ ! -f "$TOKEN_FILE" ]; then
+  echo "Missing $TOKEN_FILE"
+  exit 1
+fi
+
+TOKEN=$(grep '^TUNNEL_TOKEN=' "$TOKEN_FILE" | cut -d'=' -f2-)
+if [ -z "$TOKEN" ]; then
+  echo "TUNNEL_TOKEN is empty."
+  echo "1) Create tunnel + hostname in Cloudflare Zero Trust"
+  echo "2) Paste token into env/cloudflare.local.env (recommended)"
+  echo "   or env/cloudflare.env"
+  echo "3) Re-run: bin/tunnel-start"
+  exit 1
+fi
+
+bin/docker-compose --profile tunnel up -d tunnel
+bin/docker-compose ps tunnel

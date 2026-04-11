@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
 import { useState } from 'react';
 import { Gamepad2 } from 'lucide-react';
@@ -16,21 +17,25 @@ import {
 
 // Cấu hình các hãng với kích thước logo đã được cân chỉnh
 const BRANDS = [
-  { name: 'Apple', icon: SiApple, href: '/products?brand=apple', size: 24 },
-  { name: 'Samsung', icon: SiSamsung, href: '/products?brand=samsung', size: 56 },
-  { name: 'Xiaomi', icon: SiXiaomi, href: '/products?brand=xiaomi', size: 24 },
-  { name: 'Oppo', icon: SiOppo, href: '/products?brand=oppo', size: 40 },
-  { name: 'One Plus', icon: SiOneplus, href: '/products?brand=oneplus', size: 28 },
-  { name: 'Vivo', icon: SiVivo, href: '/products?brand=vivo', size: 40 },
-  { name: 'Asus', icon: SiAsus, href: '/products?brand=asus', size: 40 },
-  { name: 'Red Magic', icon: Gamepad2, href: '/products?brand=red-magic', size: 24 },
+  { name: 'Apple', slug: 'apple', icon: SiApple, href: '/products?brand=apple', size: 24 },
+  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/products?brand=samsung', size: 56 },
+  { name: 'Xiaomi', slug: 'xiaomi', icon: SiXiaomi, href: '/products?brand=xiaomi', size: 24 },
+  { name: 'Oppo', slug: 'oppo', icon: SiOppo, href: '/products?brand=oppo', size: 40 },
+  { name: 'One Plus', slug: 'oneplus', icon: SiOneplus, href: '/products?brand=oneplus', size: 28 },
+  { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/products?brand=vivo', size: 40 },
+  { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/products?brand=asus', size: 40 },
+  { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/products?brand=red-magic', size: 24 },
 ];
 
 export default function MobileCityHeader() {
   const { user, logout, isAuthenticated } = useAuth();
   const { itemCount } = useCart();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Hà Nội');
+
+  const activeBrand = pathname === '/products' ? searchParams.get('brand') : null;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,16 +166,21 @@ export default function MobileCityHeader() {
           <div className="flex items-center justify-between py-3 overflow-x-auto hide-scrollbar">
             {BRANDS.map((brand) => {
               const Icon = brand.icon;
+              const isActive = activeBrand === brand.slug;
               return (
                 <Link
                   key={brand.name}
                   href={brand.href}
-                  className="group flex items-center gap-2 px-4 py-2 hover:bg-gray-50 rounded-lg transition-all min-w-fit border border-transparent hover:border-gray-100"
+                  className={`group flex items-center gap-2 px-4 py-2 rounded-lg transition-all min-w-fit border ${
+                    isActive
+                      ? 'bg-amber-50 border-amber-200 shadow-sm'
+                      : 'border-transparent hover:border-gray-100 hover:bg-gray-50'
+                  }`}
                 >
-                  <span className="text-gray-600 group-hover:text-gold transition-colors flex items-center justify-center">
+                  <span className={`transition-colors flex items-center justify-center ${isActive ? 'text-gold' : 'text-gray-600 group-hover:text-gold'}`}>
                     <Icon size={brand.size || 24} />
                   </span>
-                  <span className="text-base font-semibold text-gray-700 group-hover:text-gold transition-colors whitespace-nowrap">
+                  <span className={`text-base font-semibold transition-colors whitespace-nowrap ${isActive ? 'text-gold' : 'text-gray-700 group-hover:text-gold'}`}>
                     {brand.name}
                   </span>
                 </Link>

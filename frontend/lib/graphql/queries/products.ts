@@ -120,6 +120,19 @@ export const GET_CATEGORIES = `
   }
 `;
 
+export const GET_CATEGORY_BY_URL_KEY = `
+  query GetCategoryByUrlKey($urlKey: String!) {
+    categories(filters: { url_key: { eq: $urlKey } }) {
+      items {
+        id
+        name
+        url_key
+        url_path
+      }
+    }
+  }
+`;
+
 export const SEARCH_PRODUCTS = `
   query SearchProducts($search: String!, $pageSize: Int = 12) {
     products(search: $search, pageSize: $pageSize) {

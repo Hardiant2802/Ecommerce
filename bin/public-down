@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -o errexit
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+echo "Stopping Next.js frontend..."
+bin/frontend-stop || true
+
+echo "Stopping Cloudflare tunnel..."
+bin/tunnel-stop || true
+
+echo "Stopping Docker services..."
+bin/docker-compose stop
+
+echo "Public stack is down."
