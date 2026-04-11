@@ -21,5 +21,8 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
+echo "Using tunnel token from $TOKEN_FILE"
+export TUNNEL_TOKEN="$TOKEN"
+
 bin/docker-compose --profile tunnel up -d tunnel
 bin/docker-compose ps tunnel
