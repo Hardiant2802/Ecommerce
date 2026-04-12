@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: ['ahphonestore.id.vn', 'www.ahphonestore.id.vn'],
   images: {
     remotePatterns: [
       {

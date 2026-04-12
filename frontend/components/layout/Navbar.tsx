@@ -38,19 +38,19 @@ export default function Navbar() {
               Tin Tức
             </Link>
             <Link
-              href="/products?category=iphone"
+              href="/iphone"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
               iPhone
             </Link>
             <Link
-              href="/products?category=samsung"
+              href="/samsung"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
               Samsung
             </Link>
             <Link
-              href="/products?category=xiaomi"
+              href="/xiaomi"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
               Xiaomi
@@ -171,21 +171,21 @@ export default function Navbar() {
                 Tin Tức
               </Link>
               <Link
-                href="/products?category=iphone"
+                href="/iphone"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 iPhone
               </Link>
               <Link
-                href="/products?category=samsung"
+                href="/samsung"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Samsung
               </Link>
               <Link
-                href="/products?category=xiaomi"
+                href="/xiaomi"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >

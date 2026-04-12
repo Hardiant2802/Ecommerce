@@ -17,14 +17,14 @@ import {
 
 // Cấu hình các hãng với kích thước logo đã được cân chỉnh
 const BRANDS = [
-  { name: 'Apple', slug: 'apple', icon: SiApple, href: '/products?brand=apple', size: 24 },
-  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/products?brand=samsung', size: 56 },
-  { name: 'Xiaomi', slug: 'xiaomi', icon: SiXiaomi, href: '/products?brand=xiaomi', size: 24 },
-  { name: 'Oppo', slug: 'oppo', icon: SiOppo, href: '/products?brand=oppo', size: 40 },
-  { name: 'One Plus', slug: 'oneplus', icon: SiOneplus, href: '/products?brand=oneplus', size: 28 },
-  { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/products?brand=vivo', size: 40 },
-  { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/products?brand=asus', size: 40 },
-  { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/products?brand=red-magic', size: 24 },
+  { name: 'Apple', slug: 'apple', icon: SiApple, href: '/apple', size: 24 },
+  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/samsung', size: 56 },
+  { name: 'Xiaomi', slug: 'xiaomi', icon: SiXiaomi, href: '/xiaomi', size: 24 },
+  { name: 'Oppo', slug: 'oppo', icon: SiOppo, href: '/oppo', size: 40 },
+  { name: 'One Plus', slug: 'oneplus', icon: SiOneplus, href: '/oneplus', size: 28 },
+  { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/vivo', size: 40 },
+  { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/asus', size: 40 },
+  { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/red-magic', size: 24 },
 ];
 
 export default function MobileCityHeader() {
@@ -35,7 +35,7 @@ export default function MobileCityHeader() {
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Hà Nội');
 
-  const activeBrand = pathname === '/products' ? searchParams.get('brand') : null;
+  const activeBrand = BRANDS.find((brand) => pathname === brand.href)?.slug || (pathname === '/products' ? searchParams.get('brand') : null);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
