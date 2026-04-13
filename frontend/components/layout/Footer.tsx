@@ -94,7 +94,7 @@ export default function Footer() {
             <h3 className="font-semibold text-base mb-4">Kết nối với chúng tôi</h3>
             <div className="flex items-center flex-wrap gap-3 mb-6">
               <a
-                href="https://facebook.com"
+                href="https://web.facebook.com/huy080905nd"
                 target="_blank"
                 rel="noreferrer"
                 aria-label="Facebook"
@@ -103,7 +103,7 @@ export default function Footer() {
                 <FaFacebookF className="w-4 h-4" />
               </a>
               <a
-                href="https://zalo.me"
+                href="https://zalo.me/0918317083"
                 target="_blank"
                 rel="noreferrer"
                 aria-label="Zalo"
@@ -112,7 +112,7 @@ export default function Footer() {
                 Zalo
               </a>
               <a
-                href="https://youtube.com"
+                href="https://www.youtube.com/@SVTB-AHuy"
                 target="_blank"
                 rel="noreferrer"
                 aria-label="YouTube"

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+
 export async function GET(request: NextRequest) {
   const sourceUrl = request.nextUrl.searchParams.get('url');
 
@@ -20,12 +22,6 @@ export async function GET(request: NextRequest) {
 
   try {
     const response = await fetch(parsedUrl.toString(), {
-      // @ts-ignore - Node runtime supports custom agent in local development.
-      ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
-        agent: new (require('https').Agent)({
-          rejectUnauthorized: false,
-        }),
-      }),
       cache: 'no-store',
     });
 

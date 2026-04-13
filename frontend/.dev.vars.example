@@ -1,0 +1,10 @@
+# Copy this file to .dev.vars when running Cloudflare local preview with wrangler.
+# Do not commit .dev.vars.
+
+NEXT_PUBLIC_MAGENTO_GRAPHQL_URL=https://ahphonestore.id.vn/graphql
+NEXT_PUBLIC_MAGENTO_API_URL=https://ahphonestore.id.vn
+NEXT_PUBLIC_MAGENTO_STORE_CODE=default
+NEXT_PUBLIC_SITE_URL=https://ahphonestore.id.vn
+NEXT_PUBLIC_SITE_NAME=AH PHONE STORE
+NEXT_PUBLIC_OPENWEATHER_API_KEY=replace_with_your_key
+NEXT_PUBLIC_DEFAULT_CITY=Hanoi

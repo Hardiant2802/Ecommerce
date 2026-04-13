@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchWeatherByCity, fetchWeatherByCoords, transformWeatherData } from '@/lib/services/weather';
 import type { WeatherApiResponse } from '@/types/weather';
 
+export const runtime = 'edge';
+
 // Cache weather data for 10 minutes
 const CACHE_DURATION = 10 * 60 * 1000;
 let cachedData: WeatherApiResponse | null = null;

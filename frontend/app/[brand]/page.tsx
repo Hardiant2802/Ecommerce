@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import ProductsPageContent from '@/components/product/ProductsPageContent';
 
+export const runtime = 'edge';
+
 const ALLOWED_BRANDS = new Set([
   'apple',
   'iphone',

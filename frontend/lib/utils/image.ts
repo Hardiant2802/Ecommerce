@@ -29,9 +29,16 @@ export function withImageVersion(url?: string, version?: string): string {
     try {
       const parsedImageUrl = new URL(normalizedUrl);
       const parsedApiUrl = new URL(apiBaseUrl);
-      parsedImageUrl.protocol = parsedApiUrl.protocol;
-      parsedImageUrl.host = parsedApiUrl.host;
-      normalizedUrl = parsedImageUrl.toString();
+
+      const apiHost = parsedApiUrl.hostname.toLowerCase();
+      const isLocalApiHost = apiHost === 'localhost' || apiHost === '127.0.0.1' || apiHost === '0.0.0.0';
+
+      // Never rewrite image host to local addresses in deployed environments.
+      if (!isLocalApiHost) {
+        parsedImageUrl.protocol = parsedApiUrl.protocol;
+        parsedImageUrl.host = parsedApiUrl.host;
+        normalizedUrl = parsedImageUrl.toString();
+      }
     } catch {
       // Keep the original URL when parsing fails.
     }
@@ -39,6 +46,34 @@ export function withImageVersion(url?: string, version?: string): string {
 
   if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
     return normalizedUrl;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+
+    // Custom domain now serves frontend Pages, while Magento media files are on www subdomain.
+    if (
+      parsedUrl.hostname.toLowerCase() === 'ahphonestore.id.vn' &&
+      parsedUrl.pathname.startsWith('/media/catalog/product/')
+    ) {
+      parsedUrl.hostname = 'www.ahphonestore.id.vn';
+    }
+
+    if (version) {
+      parsedUrl.searchParams.set('v', version);
+    }
+
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(parsedUrl.hostname);
+    const isPublicHttpsImage = parsedUrl.protocol === 'https:' && !isLocalHost;
+
+    // For public HTTPS images, use direct URL to avoid proxy bottlenecks and intermittent worker failures.
+    if (isPublicHttpsImage) {
+      return parsedUrl.toString();
+    }
+
+    normalizedUrl = parsedUrl.toString();
+  } catch {
+    // If URL parsing fails, keep the existing proxy fallback behavior below.
   }
 
   const proxyParams = new URLSearchParams({

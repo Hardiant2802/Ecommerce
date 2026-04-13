@@ -48,7 +48,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
-  const productUrl = `/product/${product.url_key || product.sku}`;
+  const productUrl = `/product/${product.sku}`;
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 
   const handleAddToCart = async (e: React.MouseEvent) => {
@@ -75,11 +75,18 @@ export default function ProductCard({ product }: ProductCardProps) {
             src={imageUrl}
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+            loading="lazy"
+            onError={(event) => {
+              const target = event.currentTarget;
+              if (!target.src.endsWith('/images/placeholder.svg')) {
+                target.src = '/images/placeholder.svg';
+              }
+            }}
           />
           {!inStock && (
             <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
               <span className="bg-white px-4 py-2 rounded-md font-semibold text-gray-900">
-                Out of Stock
+                Hết hàng
               </span>
             </div>
           )}
@@ -97,7 +104,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             disabled={!inStock}
             loading={adding}
           >
-            {inStock ? 'Add to Cart' : 'Out of Stock'}
+            {inStock ? 'Mua' : 'Hết hàng'}
           </Button>
         </div>
       </div>

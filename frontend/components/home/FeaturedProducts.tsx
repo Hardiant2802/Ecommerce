@@ -70,7 +70,7 @@ export default function FeaturedProducts() {
             price: { from: '0' },
           },
         },
-        cache: 'force-cache',
+        cache: 'no-store',
       });
 
       setProducts((prev) => {
@@ -124,7 +124,7 @@ export default function FeaturedProducts() {
           return (
           <Link
             key={product.id}
-            href={`/products/${product.url_key}`}
+            href={`/product/${product.sku}`}
             className="group"
           >
             <div className="card hover:shadow-lg transition-shadow bg-white rounded-lg overflow-hidden border border-gray-100 flex flex-col h-full">
@@ -134,6 +134,13 @@ export default function FeaturedProducts() {
                     src={imageUrl}
                     alt={product.name}
                     className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                    loading="lazy"
+                    onError={(event) => {
+                      const target = event.currentTarget;
+                      if (!target.src.endsWith('/images/placeholder.svg')) {
+                        target.src = '/images/placeholder.svg';
+                      }
+                    }}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-400">

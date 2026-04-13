@@ -1,9 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const MAGENTO_GRAPHQL_URL = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL || 'https://localhost/graphql';
+export const runtime = 'edge';
+
+const DEFAULT_MAGENTO_GRAPHQL_URL = 'https://ahphonestore.id.vn/graphql';
+const FALLBACK_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
+
+function resolveMagentoGraphqlUrl(request: NextRequest): string {
+  const rawUrl = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL;
+  const candidateUrl = rawUrl || DEFAULT_MAGENTO_GRAPHQL_URL;
+
+  const normalized = candidateUrl.trim().toLowerCase();
+  if (
+    normalized.includes('localhost') ||
+    normalized.includes('127.0.0.1') ||
+    normalized.includes('0.0.0.0')
+  ) {
+    return FALLBACK_MAGENTO_GRAPHQL_URL;
+  }
+
+  try {
+    const targetHost = new URL(candidateUrl).hostname.toLowerCase();
+    const frontendHost = request.nextUrl.hostname.toLowerCase();
+
+    // If API target points to the same host as frontend Pages, it will recurse and return HTML.
+    if (targetHost === frontendHost) {
+      return FALLBACK_MAGENTO_GRAPHQL_URL;
+    }
+  } catch {
+    return FALLBACK_MAGENTO_GRAPHQL_URL;
+  }
+
+  return candidateUrl;
+}
 
 export async function POST(request: NextRequest) {
   try {
+    const magentoGraphqlUrl = resolveMagentoGraphqlUrl(request);
     const body = await request.json();
     
     const headers: HeadersInit = {
@@ -17,17 +49,11 @@ export async function POST(request: NextRequest) {
       headers['Authorization'] = authHeader;
     }
 
-    const response = await fetch(MAGENTO_GRAPHQL_URL, {
+    const response = await fetch(magentoGraphqlUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      // Disable SSL verification for local development
-      // @ts-ignore
-      ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
-        agent: new (require('https').Agent)({
-          rejectUnauthorized: false
-        })
-      })
+      cache: 'no-store',
     });
 
     const data = await response.json();

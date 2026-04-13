@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchExchangeRates } from '@/lib/services/currency';
 import type { CurrencyApiResponse } from '@/types/currency';
 
+export const runtime = 'edge';
+
 // Cache exchange rates for 1 hour (rates don't change frequently)
 const CACHE_DURATION = 60 * 60 * 1000;
 let cachedData: CurrencyApiResponse | null = null;

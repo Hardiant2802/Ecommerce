@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchBusinessNews } from '@/lib/services/news';
 import type { NewsApiResponse } from '@/types/news';
 
+export const runtime = 'edge';
+
 // Cache news for 5 minutes (news updates frequently)
 const CACHE_DURATION = 5 * 60 * 1000;
 let cachedData: NewsApiResponse | null = null;

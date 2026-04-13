@@ -95,7 +95,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         const categoryData = await graphqlClient<CategoryLookupResult>({
           query: GET_CATEGORY_BY_URL_KEY,
           variables: { urlKey: categorySlug },
-          cache: 'force-cache',
+          cache: 'no-store',
         });
 
         const matchedCategory = categoryData.categories.items[0];
@@ -139,7 +139,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
       }>({
         query: GET_PRODUCTS,
         variables,
-        cache: 'force-cache',
+        cache: 'no-store',
       });
 
       setProducts(data.products.items);
