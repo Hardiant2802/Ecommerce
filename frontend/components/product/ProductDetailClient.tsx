@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_PRODUCT_DETAIL } from '@/lib/graphql/queries/products';
@@ -124,13 +124,22 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
+  const requestControllerRef = useRef<AbortController | null>(null);
   const { addToCart } = useCart();
 
   useEffect(() => {
     loadProduct();
+
+    return () => {
+      requestControllerRef.current?.abort();
+    };
   }, [slug]);
 
   const loadProduct = async () => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+
     setLoading(true);
     try {
       const data = await graphqlClient<{
@@ -140,16 +149,23 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
       }>({
         query: GET_PRODUCT_DETAIL,
         variables: { sku: slug },
-        cache: 'no-store',
+        cache: 'default',
+        ttlMs: 15 * 1000,
+        signal: controller.signal,
       });
 
       if (data.products.items.length > 0) {
         setProduct(data.products.items[0]);
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to load product:', error);
     } finally {
-      setLoading(false);
+      if (requestControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ProductGrid from '@/components/product/ProductGrid';
 import { graphqlClient } from '@/lib/graphql/client';
@@ -28,16 +28,14 @@ interface Product {
     url: string;
     label: string;
   };
-  stock_status?: string;
 }
 
 interface CategoryLookupResult {
   categories: {
     items: Array<{
-      id: string;
+      id: number;
       name: string;
       url_key: string;
-      url_path?: string;
     }>;
   };
 }
@@ -45,6 +43,22 @@ interface CategoryLookupResult {
 interface ProductsPageContentProps {
   forcedBrand?: string;
 }
+
+const BRANDS = [
+  { name: 'Apple', slug: 'apple', category_id: 55 },
+  { name: 'Samsung', slug: 'samsung', category_id: 56 },
+  { name: 'Xiaomi', slug: 'xiaomi', category_id: 57 },
+  { name: 'Oppo', slug: 'oppo', category_id: 58 },
+  { name: 'OnePlus', slug: 'oneplus', category_id: 59 },
+  { name: 'Vivo', slug: 'vivo', category_id: 60 },
+  { name: 'Asus', slug: 'asus', category_id: 61 },
+  { name: 'Red Magic', slug: 'red-magic', category_id: 62 },
+];
+
+const BRAND_CATEGORY_MAP: Record<string, number> = BRANDS.reduce((acc, brand) => {
+  acc[brand.slug] = brand.category_id;
+  return acc;
+}, {} as Record<string, number>);
 
 export default function ProductsPageContent({ forcedBrand }: ProductsPageContentProps) {
   const PAGE_SIZE = 12;
@@ -55,6 +69,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const requestControllerRef = useRef<AbortController | null>(null);
 
   const category = searchParams.get('category');
   const brand = searchParams.get('brand');
@@ -80,9 +95,17 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
 
   useEffect(() => {
     loadProducts();
+
+    return () => {
+      requestControllerRef.current?.abort();
+    };
   }, [category, activeBrand, search, sortBy, currentPage]);
 
   const loadProducts = async () => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+
     setLoading(true);
     try {
       const variables: any = {
@@ -92,22 +115,34 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
 
       const categorySlug = activeBrand || category;
       if (categorySlug) {
-        const categoryData = await graphqlClient<CategoryLookupResult>({
-          query: GET_CATEGORY_BY_URL_KEY,
-          variables: { urlKey: categorySlug },
-          cache: 'no-store',
-        });
+        let categoryId: number | null = BRAND_CATEGORY_MAP[categorySlug] ?? null;
 
-        const matchedCategory = categoryData.categories.items[0];
-        if (matchedCategory) {
-          variables.filter = {
-            category_id: { eq: matchedCategory.id },
-          };
-        } else {
+        if (!categoryId) {
+          const categoryData = await graphqlClient<CategoryLookupResult>({
+            query: GET_CATEGORY_BY_URL_KEY,
+            variables: { urlKey: categorySlug },
+            cache: 'default',
+            ttlMs: 10 * 60 * 1000,
+            signal: controller.signal,
+          });
+
+          const matchedCategory = categoryData.categories.items[0];
+          if (matchedCategory) {
+            categoryId = matchedCategory.id;
+          }
+        }
+
+        if (!categoryId) {
           setProducts([]);
+          setTotalCount(0);
+          setTotalPages(1);
           setLoading(false);
           return;
         }
+
+        variables.filter = {
+          category_id: { eq: categoryId },
+        };
       }
 
       if (search) {
@@ -139,16 +174,23 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
       }>({
         query: GET_PRODUCTS,
         variables,
-        cache: 'no-store',
+        cache: 'default',
+        ttlMs: 10 * 1000,
+        signal: controller.signal,
       });
 
       setProducts(data.products.items);
       setTotalCount(data.products.total_count || 0);
       setTotalPages(data.products.page_info?.total_pages || 1);
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to load products:', error);
     } finally {
-      setLoading(false);
+      if (requestControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 

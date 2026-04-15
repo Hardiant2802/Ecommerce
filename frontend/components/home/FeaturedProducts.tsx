@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
+import { formatPrice } from '@/lib/utils/formatters';
 import { Product } from '@/types/product';
 
 function hashString(value: string): number {
@@ -32,20 +33,21 @@ export default function FeaturedProducts() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [shuffleSeed] = useState(() => `${Date.now()}-${Math.random()}`);
+  const requestControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     loadProducts(1, false);
+
+    return () => {
+      requestControllerRef.current?.abort();
+    };
   }, []);
 
-  // Hàm chuyển đổi số thành định dạng Tiền Việt Nam (VND)
-  const formatVND = (price: number) => {
-    return new Intl.NumberFormat('vi-VN', {
-      style: 'currency',
-      currency: 'VND',
-    }).format(price);
-  };
-
   const loadProducts = async (page: number, append: boolean) => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+
     if (append) {
       setLoadingMore(true);
     } else {
@@ -70,7 +72,9 @@ export default function FeaturedProducts() {
             price: { from: '0' },
           },
         },
-        cache: 'no-store',
+        cache: 'default',
+        ttlMs: 10 * 1000,
+        signal: controller.signal,
       });
 
       setProducts((prev) => {
@@ -86,10 +90,15 @@ export default function FeaturedProducts() {
       setCurrentPage(data.products.page_info?.current_page || page);
       setTotalPages(data.products.page_info?.total_pages || 1);
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to load featured products:', error);
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (requestControllerRef.current === controller) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -156,10 +165,13 @@ export default function FeaturedProducts() {
 
                 <div className="flex items-baseline gap-2 mb-4">
                   <span className="text-xl font-bold text-primary-600">
-                    {formatVND(
+                    {formatPrice(
                       product.price_range?.minimum_price?.final_price?.value ||
                       product.price_range?.minimum_price?.regular_price?.value ||
-                      0
+                      0,
+                      product.price_range?.minimum_price?.final_price?.currency ||
+                      product.price_range?.minimum_price?.regular_price?.currency ||
+                      'VND'
                     )}
                   </span>
                 </div>

@@ -1,6 +1,10 @@
 // Formatting utilities
 
 export function formatPrice(value: number, currency: string = 'USD'): string {
+  if (currency === 'VND') {
+    return `${new Intl.NumberFormat('vi-VN').format(value)} đ`;
+  }
+
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency,

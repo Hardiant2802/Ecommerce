@@ -9,6 +9,72 @@ export interface GraphQLRequestOptions {
   token?: string;
   cache?: RequestCache;
   tags?: string[];
+  ttlMs?: number;
+  signal?: AbortSignal;
+}
+
+const BROWSER_CACHE_PREFIX = 'graphql-cache:v1:';
+const memoryCache = new Map<string, { expiresAt: number; data: unknown }>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
+
+function createCacheKey(query: string, variables?: Record<string, any>): string {
+  return `${BROWSER_CACHE_PREFIX}${JSON.stringify([query, variables || {}])}`;
+}
+
+function getCachedValue<T>(cacheKey: string): T | null {
+  const now = Date.now();
+  const memoryItem = memoryCache.get(cacheKey);
+  if (memoryItem && memoryItem.expiresAt > now) {
+    return memoryItem.data as T;
+  }
+
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(cacheKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as { expiresAt: number; data: T };
+    if (parsed.expiresAt <= now) {
+      window.sessionStorage.removeItem(cacheKey);
+      return null;
+    }
+
+    memoryCache.set(cacheKey, {
+      expiresAt: parsed.expiresAt,
+      data: parsed.data,
+    });
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedValue<T>(cacheKey: string, data: T, ttlMs: number): void {
+  if (ttlMs <= 0) {
+    return;
+  }
+
+  const payload = {
+    expiresAt: Date.now() + ttlMs,
+    data,
+  };
+
+  memoryCache.set(cacheKey, payload);
+
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota/security errors and keep in-memory cache only.
+  }
 }
 
 export async function graphqlClient<T>({
@@ -17,7 +83,24 @@ export async function graphqlClient<T>({
   token,
   cache = 'no-store',
   tags = [],
+  ttlMs = 90_000,
+  signal,
 }: GraphQLRequestOptions): Promise<T> {
+  const canUseBrowserCache = typeof window !== 'undefined' && !token && ttlMs > 0 && cache !== 'no-store';
+  const cacheKey = canUseBrowserCache ? createCacheKey(query, variables) : '';
+
+  if (canUseBrowserCache) {
+    const cachedValue = getCachedValue<T>(cacheKey);
+    if (cachedValue) {
+      return cachedValue;
+    }
+
+    const existingRequest = inFlightRequests.get(cacheKey);
+    if (existingRequest) {
+      return existingRequest as Promise<T>;
+    }
+  }
+
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };
@@ -26,7 +109,7 @@ export async function graphqlClient<T>({
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  try {
+  const doRequest = async () => {
     const response = await fetch(GRAPHQL_ENDPOINT, {
       method: 'POST',
       headers,
@@ -35,6 +118,7 @@ export async function graphqlClient<T>({
         variables,
       }),
       cache,
+      signal,
       ...(tags.length > 0 && { next: { tags } }),
     });
 
@@ -53,10 +137,29 @@ export async function graphqlClient<T>({
       throw new Error('No data returned from GraphQL');
     }
 
+    if (canUseBrowserCache) {
+      setCachedValue(cacheKey, result.data, ttlMs);
+    }
+
     return result.data;
+  };
+
+  try {
+    if (canUseBrowserCache) {
+      const requestPromise = doRequest();
+      inFlightRequests.set(cacheKey, requestPromise as Promise<unknown>);
+      const data = await requestPromise;
+      return data;
+    }
+
+    return await doRequest();
   } catch (error) {
     console.error('GraphQL Client Error:', error);
     throw error;
+  } finally {
+    if (canUseBrowserCache) {
+      inFlightRequests.delete(cacheKey);
+    }
   }
 }
 
