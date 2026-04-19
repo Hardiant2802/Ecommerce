@@ -4,6 +4,14 @@ export interface CartItem {
   product: {
     sku: string;
     name: string;
+    price_range?: {
+      minimum_price?: {
+        regular_price?: {
+          value: number;
+          currency: string;
+        };
+      };
+    };
     thumbnail: {
       url: string;
       label: string;

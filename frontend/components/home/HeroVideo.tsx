@@ -85,7 +85,7 @@ export default function HeroVideo() {
             key={activeVideo} // Thêm key để React ép load lại iframe khi đổi ID
             className="absolute inset-0 w-full h-full"
             src={`https://www.youtube-nocookie.com/embed/${activeVideo}?rel=0&modestbranding=1`} 
-            title="YouTube video player" 
+            title="Trình phát video YouTube" 
             frameBorder="0" 
             allowFullScreen
           ></iframe>

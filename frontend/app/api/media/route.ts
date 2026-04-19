@@ -6,18 +6,18 @@ export async function GET(request: NextRequest) {
   const sourceUrl = request.nextUrl.searchParams.get('url');
 
   if (!sourceUrl) {
-    return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 });
+    return NextResponse.json({ error: 'Thiếu tham số url' }, { status: 400 });
   }
 
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(sourceUrl);
   } catch {
-    return NextResponse.json({ error: 'Invalid image URL' }, { status: 400 });
+    return NextResponse.json({ error: 'URL ảnh không hợp lệ' }, { status: 400 });
   }
 
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    return NextResponse.json({ error: 'Unsupported protocol' }, { status: 400 });
+    return NextResponse.json({ error: 'Giao thức không được hỗ trợ' }, { status: 400 });
   }
 
   try {
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Failed to fetch image',
+        error: error instanceof Error ? error.message : 'Không thể tải ảnh',
       },
       { status: 500 }
     );

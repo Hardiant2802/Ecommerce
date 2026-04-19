@@ -50,7 +50,7 @@ export function useNews(options: UseNewsOptions = {}): UseNewsReturn {
           setLastUpdated(data.data.lastUpdated);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch news');
+        setError(err instanceof Error ? err.message : 'Không thể lấy tin tức');
       } finally {
         setLoading(false);
       }

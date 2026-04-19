@@ -13,6 +13,8 @@ const ALLOWED_BRANDS = new Set([
   'vivo',
   'asus',
   'red-magic',
+  'tai-nghe',
+  'phu-kien',
 ]);
 
 interface BrandPageProps {

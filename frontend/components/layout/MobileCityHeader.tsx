@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
-import { useState } from 'react';
-import { Gamepad2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Gamepad2, Headphones, Package } from 'lucide-react';
 import {
   SiApple,
   SiSamsung,
@@ -18,30 +18,42 @@ import {
 // Cấu hình các hãng với kích thước logo đã được cân chỉnh
 const BRANDS = [
   { name: 'Apple', slug: 'apple', icon: SiApple, href: '/apple', size: 24 },
-  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/samsung', size: 56 },
+  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/samsung', size: 46 },
   { name: 'Xiaomi', slug: 'xiaomi', icon: SiXiaomi, href: '/xiaomi', size: 24 },
   { name: 'Oppo', slug: 'oppo', icon: SiOppo, href: '/oppo', size: 40 },
-  { name: 'One Plus', slug: 'oneplus', icon: SiOneplus, href: '/oneplus', size: 28 },
+  { name: 'OnePlus', slug: 'oneplus', icon: SiOneplus, href: '/oneplus', size: 26 },
   { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/vivo', size: 40 },
   { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/asus', size: 40 },
   { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/red-magic', size: 24 },
+  { name: 'Tai nghe', slug: 'tai-nghe', icon: Headphones, href: '/tai-nghe', size: 24 },
+  { name: 'Phụ kiện', slug: 'phu-kien', icon: Package, href: '/phu-kien', size: 24 },
 ];
 
 export default function MobileCityHeader() {
   const { user, logout, isAuthenticated } = useAuth();
   const { itemCount } = useCart();
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Hà Nội');
 
-  const activeBrand = BRANDS.find((brand) => pathname === brand.href)?.slug || (pathname === '/products' ? searchParams.get('brand') : null);
+  useEffect(() => {
+    setSearchQuery(searchParams.get('search') ?? '');
+  }, [searchParams]);
+
+  const activeBrand = BRANDS.find((brand) => pathname === brand.href)?.slug || searchParams.get('brand');
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      window.location.href = `/products?search=${encodeURIComponent(searchQuery)}`;
+    const query = searchQuery.trim();
+
+    if (!query) {
+      router.push('/');
+      return;
     }
+
+    router.push(`/?search=${encodeURIComponent(query)}`);
   };
 
   return (
@@ -55,7 +67,7 @@ export default function MobileCityHeader() {
               <div className="flex items-center space-x-6">
                 <Link href="/news" className="hover:underline">TIN TỨC</Link>
                 <span className="text-gold-light">|</span>
-                <Link href="/warranty" className="hover:underline">TRA CỨU BH</Link>
+                <Link href="/warranty" className="hover:underline">TRA CỨU BẢO HÀNH</Link>
               </div>
               <div className="flex items-center space-x-4">
                 <select
@@ -171,7 +183,7 @@ export default function MobileCityHeader() {
                 <Link
                   key={brand.name}
                   href={brand.href}
-                  className={`group flex items-center gap-2 px-4 py-2 rounded-lg transition-all min-w-fit border ${
+                  className={`group flex items-center gap-2 px-3 py-2 rounded-lg transition-all min-w-fit border ${
                     isActive
                       ? 'bg-amber-50 border-amber-200 shadow-sm'
                       : 'border-transparent hover:border-gray-100 hover:bg-gray-50'
@@ -180,7 +192,7 @@ export default function MobileCityHeader() {
                   <span className={`transition-colors flex items-center justify-center ${isActive ? 'text-gold' : 'text-gray-600 group-hover:text-gold'}`}>
                     <Icon size={brand.size || 24} />
                   </span>
-                  <span className={`text-base font-semibold transition-colors whitespace-nowrap ${isActive ? 'text-gold' : 'text-gray-700 group-hover:text-gold'}`}>
+                  <span className={`text-sm font-semibold transition-colors whitespace-nowrap ${isActive ? 'text-gold' : 'text-gray-700 group-hover:text-gold'}`}>
                     {brand.name}
                   </span>
                 </Link>

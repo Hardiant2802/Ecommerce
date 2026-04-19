@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/hooks';
 import Input from '@/components/ui/Input';
@@ -10,6 +10,8 @@ import { validateEmail, validatePassword } from '@/lib/utils/validators';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect') || '/';
   const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -22,7 +24,6 @@ export default function LoginPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -55,10 +56,10 @@ export default function LoginPage() {
         email: formData.email,
         password: formData.password,
       });
-      router.push('/');
+      router.push(redirectTo);
     } catch (error) {
-      console.error('Login error:', error);
-      setServerError('Invalid email or password. Please try again.');
+      console.error('Lỗi đăng nhập:', error);
+      setServerError('Email hoặc mật khẩu không đúng. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -69,9 +70,9 @@ export default function LoginPage() {
       <div className="max-w-md w-full">
         <div className="bg-white rounded-lg shadow-sm p-8">
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Sign In</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Đăng nhập</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Welcome back! Please sign in to your account.
+              {redirectTo !== '/' ? 'Vui lòng đăng nhập để tiếp tục mua hàng.' : 'Chào mừng bạn trở lại!'}
             </p>
           </div>
 
@@ -83,7 +84,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <Input
-              label="Email Address"
+              label="Địa chỉ email"
               type="email"
               name="email"
               value={formData.email}
@@ -94,13 +95,13 @@ export default function LoginPage() {
             />
 
             <Input
-              label="Password"
+              label="Mật khẩu"
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
               error={errors.password}
-              placeholder="Enter your password"
+              placeholder="Nhập mật khẩu của bạn"
               required
             />
 
@@ -110,15 +111,15 @@ export default function LoginPage() {
               size="lg"
               loading={loading}
             >
-              Sign In
+              Đăng nhập
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
+              Chưa có tài khoản?{' '}
               <Link href="/register" className="text-primary-600 hover:text-primary-700 font-medium">
-                Sign up
+                Đăng ký ngay
               </Link>
             </p>
           </div>

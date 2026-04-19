@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'edge';
 
 const DEFAULT_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
-const FALLBACK_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
+const CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL = process.env.MAGENTO_GRAPHQL_UPSTREAM_URL?.trim() || '';
 const FRONTEND_HOSTS = new Set([
   'ahphonestore.id.vn',
   'e-commerce-75g.pages.dev',
@@ -54,29 +54,49 @@ function getCachedProxyResponse(cacheKey: string): CachedGraphqlResponse | null 
   return item;
 }
 
-function resolveMagentoGraphqlUrl(request: NextRequest): string {
-  const rawUrl = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL;
-  const candidateUrl = rawUrl || DEFAULT_MAGENTO_GRAPHQL_URL;
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+}
 
-  const normalized = candidateUrl.trim().toLowerCase();
-  if (
-    normalized.includes('localhost') ||
-    normalized.includes('127.0.0.1') ||
-    normalized.includes('0.0.0.0')
-  ) {
-    return FALLBACK_MAGENTO_GRAPHQL_URL;
+function isLocalRequestHost(hostname: string): boolean {
+  return isLoopbackHost(hostname) || hostname.endsWith('.local');
+}
+
+function buildFallbackUpstream(frontendHost: string): string {
+  if (CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL) {
+    try {
+      const host = new URL(CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL).hostname.toLowerCase();
+      if (host !== frontendHost && !FRONTEND_HOSTS.has(host)) {
+        return CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL;
+      }
+    } catch {
+      // Ignore invalid configured fallback and continue with default.
+    }
   }
+
+  return DEFAULT_MAGENTO_GRAPHQL_URL;
+}
+
+function resolveMagentoGraphqlUrl(request: NextRequest): string {
+  const frontendHost = request.nextUrl.hostname.toLowerCase();
+  const fallbackUpstream = buildFallbackUpstream(frontendHost);
+  const rawPublicUrl = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL?.trim();
+  const candidateUrl = rawPublicUrl || CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL || DEFAULT_MAGENTO_GRAPHQL_URL;
 
   try {
     const targetHost = new URL(candidateUrl).hostname.toLowerCase();
-    const frontendHost = request.nextUrl.hostname.toLowerCase();
+
+    // A deployed edge runtime cannot reach localhost from the user's browser context.
+    if (isLoopbackHost(targetHost) && !isLocalRequestHost(frontendHost)) {
+      return fallbackUpstream;
+    }
 
     // If API target points to a frontend host, it will recurse and return HTML instead of GraphQL JSON.
     if (targetHost === frontendHost || FRONTEND_HOSTS.has(targetHost)) {
-      return FALLBACK_MAGENTO_GRAPHQL_URL;
+      return fallbackUpstream;
     }
   } catch {
-    return FALLBACK_MAGENTO_GRAPHQL_URL;
+    return fallbackUpstream;
   }
 
   return candidateUrl;

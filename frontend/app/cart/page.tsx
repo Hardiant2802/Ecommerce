@@ -1,15 +1,37 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Link from 'next/link';
-import { useCart } from '@/lib/hooks';
+import { useAuth, useCart } from '@/lib/hooks';
 import CartItem from '@/components/cart/CartItem';
 import CartSummary from '@/components/cart/CartSummary';
 import Button from '@/components/ui/Button';
 
 export default function CartPage() {
-  const { cart, updateQuantity, removeItem, loading } = useCart();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { cart, updateQuantity, removeItem, loading: cartLoading } = useCart();
+  const router = useRouter();
   const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      alert('Vui lòng đăng nhập để xem giỏ hàng');
+      router.push('/login');
+    }
+  }, [authLoading, isAuthenticated, router]);
+
+  if (authLoading || !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Đang chuyển hướng...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleUpdateQuantity = async (id: string, quantity: number) => {
     setUpdating(true);
@@ -35,7 +57,7 @@ export default function CartPage() {
     }
   };
 
-  if (loading) {
+  if (cartLoading) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="container-custom">
@@ -56,6 +78,13 @@ export default function CartPage() {
   }
 
   const isEmpty = !cart || !cart.items || cart.items.length === 0;
+  const originalTotal = cart?.items?.reduce((sum, item) => {
+    const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
+    return sum + unitPrice * item.quantity;
+  }, 0) ?? 0;
+  const originalCurrency = cart?.items?.[0]?.product.price_range?.minimum_price?.regular_price?.currency
+    ?? cart?.items?.[0]?.prices?.price?.currency
+    ?? 'VND';
 
   if (isEmpty) {
     return (
@@ -112,9 +141,9 @@ export default function CartPage() {
           {/* Summary */}
           <div>
             <CartSummary
-              subtotal={cart.prices.subtotal_excluding_tax.value}
-              total={cart.prices.grand_total.value}
-              currency={cart.prices.grand_total.currency}
+                subtotal={originalTotal}
+                total={originalTotal}
+              currency={originalCurrency}
               itemCount={cart.total_quantity}
             />
           </div>

@@ -5,6 +5,51 @@ import { User, LoginCredentials, RegisterInput } from '@/types/user';
 import { storage } from '@/lib/utils/storage';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GENERATE_CUSTOMER_TOKEN, GET_CUSTOMER, CREATE_CUSTOMER } from '@/lib/graphql/queries/auth';
+import { CREATE_EMPTY_CART, MERGE_CARTS } from '@/lib/graphql/queries/cart';
+
+function setAuthCookie(token: string | null) {
+  if (typeof document !== 'undefined') {
+    const maxAge = token ? 60 * 60 * 24 * 7 : 0; // 7 days or 0 (delete)
+    document.cookie = `auth_token=${token || ''}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  }
+}
+
+// Helper function to merge guest cart with customer cart
+async function mergeGuestCartToCustomer(token: string): Promise<string | null> {
+  const guestCartId = storage.getCartId();
+
+  if (!guestCartId) {
+    return null;
+  }
+
+  try {
+    // Create a new cart for the logged-in customer
+    const newCart = await graphqlClient<{ createEmptyCart: string }>({
+      query: CREATE_EMPTY_CART,
+      token: token,
+    });
+
+    const customerCartId = newCart.createEmptyCart;
+
+    // Merge guest cart into customer cart
+    await graphqlClient({
+      query: MERGE_CARTS,
+      variables: {
+        sourceCartId: guestCartId,
+        destinationCartId: customerCartId,
+      },
+      token: token,
+    });
+
+    // Update localStorage with new cart ID
+    storage.setCartId(customerCartId);
+
+    return customerCartId;
+  } catch (error) {
+    console.error('Failed to merge cart:', error);
+    return null;
+  }
+}
 
 interface AuthContextType {
   user: User | null;
@@ -36,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedToken = storage.getAuthToken();
       if (storedToken) {
         setToken(storedToken);
+        setAuthCookie(storedToken);
         try {
           const data = await graphqlClient<{ customer: User }>({
             query: GET_CUSTOMER,
@@ -64,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const newToken = data.generateCustomerToken.token;
       setToken(newToken);
       storage.setAuthToken(newToken);
+      setAuthCookie(newToken);
 
       // Fetch user data
       const userData = await graphqlClient<{ customer: User }>({
@@ -71,6 +118,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token: newToken,
       });
       setUser(userData.customer);
+
+      // Merge guest cart to customer cart after successful login
+      await mergeGuestCartToCustomer(newToken);
     } catch (error) {
       console.error('Login failed:', error);
       throw error;
@@ -96,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     storage.removeAuthToken();
+    setAuthCookie(null);
   };
 
   const value: AuthContextType = {

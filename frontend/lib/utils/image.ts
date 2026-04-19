@@ -51,23 +51,16 @@ export function withImageVersion(url?: string, version?: string): string {
   try {
     const parsedUrl = new URL(normalizedUrl);
 
-    // Some Magento environments may still emit local media URLs in GraphQL.
+    // Some Magento environments may still emit local or old media URLs in GraphQL.
     // Force them to public media host so browser can fetch images on deployed domains.
+    const imageHost = parsedUrl.hostname.toLowerCase();
     if (
-      parsedUrl.hostname.toLowerCase() === 'magento.test' &&
+      (imageHost === 'magento.test' || imageHost === 'magento.ahphonestore.id.vn') &&
       parsedUrl.pathname.startsWith('/media/catalog/product/')
     ) {
       parsedUrl.protocol = 'https:';
       parsedUrl.hostname = 'www.ahphonestore.id.vn';
       parsedUrl.port = '';
-    }
-
-    // Custom domain now serves frontend Pages, while Magento media files are on www subdomain.
-    if (
-      parsedUrl.hostname.toLowerCase() === 'ahphonestore.id.vn' &&
-      parsedUrl.pathname.startsWith('/media/catalog/product/')
-    ) {
-      parsedUrl.hostname = 'www.ahphonestore.id.vn';
     }
 
     if (version) {

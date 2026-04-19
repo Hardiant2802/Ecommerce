@@ -1,12 +1,17 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import { formatPrice } from '@/lib/utils/formatters';
 import { Product } from '@/types/product';
+import { getFallbackProducts } from '../../constants/fallbackProducts';
+
+interface FeaturedProductsProps {
+  searchQuery?: string;
+}
 
 function hashString(value: string): number {
   let hash = 0;
@@ -25,7 +30,7 @@ function sortProductsBySeed(items: Product[], seed: string): Product[] {
   });
 }
 
-export default function FeaturedProducts() {
+export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsProps) {
   const PAGE_SIZE = 16;
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,15 +40,7 @@ export default function FeaturedProducts() {
   const [shuffleSeed] = useState(() => `${Date.now()}-${Math.random()}`);
   const requestControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    loadProducts(1, false);
-
-    return () => {
-      requestControllerRef.current?.abort();
-    };
-  }, []);
-
-  const loadProducts = async (page: number, append: boolean) => {
+  const loadProducts = useCallback(async (page: number, append: boolean) => {
     requestControllerRef.current?.abort();
     const controller = new AbortController();
     requestControllerRef.current = controller;
@@ -55,6 +52,25 @@ export default function FeaturedProducts() {
     }
 
     try {
+      const variables: {
+        pageSize: number;
+        currentPage: number;
+        filter: {
+          price: { from: string };
+        };
+        search?: string;
+      } = {
+        pageSize: PAGE_SIZE,
+        currentPage: page,
+        filter: {
+          price: { from: '0' },
+        },
+      };
+
+      if (searchQuery) {
+        variables.search = searchQuery;
+      }
+
       const data = await graphqlClient<{
         products: {
           items: Product[];
@@ -65,13 +81,7 @@ export default function FeaturedProducts() {
         };
       }>({
         query: GET_PRODUCTS,
-        variables: {
-          pageSize: PAGE_SIZE,
-          currentPage: page,
-          filter: {
-            price: { from: '0' },
-          },
-        },
+        variables,
         cache: 'default',
         ttlMs: 10 * 1000,
         signal: controller.signal,
@@ -93,14 +103,41 @@ export default function FeaturedProducts() {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
       }
-      console.error('Failed to load featured products:', error);
+      console.error('Không thể tải danh sách sản phẩm nổi bật:', error);
+
+      const fallback = getFallbackProducts({
+        search: searchQuery,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+
+      setProducts((prev) => {
+        const merged = append ? [...prev, ...fallback.items] : fallback.items;
+        const deduped = merged.filter(
+          (item: Product, index: number, array: Product[]) =>
+            array.findIndex((p: Product) => p.id === item.id) === index
+        );
+
+        return append ? deduped : sortProductsBySeed(deduped, shuffleSeed);
+      });
+      setCurrentPage(fallback.currentPage);
+      setTotalPages(fallback.totalPages);
     } finally {
       if (requestControllerRef.current === controller) {
         setLoading(false);
         setLoadingMore(false);
       }
     }
-  };
+  }, [searchQuery, shuffleSeed]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    loadProducts(1, false);
+
+    return () => {
+      requestControllerRef.current?.abort();
+    };
+  }, [searchQuery, loadProducts]);
 
   const handleLoadMore = () => {
     if (loadingMore || currentPage >= totalPages) return;
@@ -110,7 +147,7 @@ export default function FeaturedProducts() {
   if (loading) {
     return (
       <div className="text-center py-20 text-gray-500">
-        <p className="text-lg">Loading featured products...</p>
+        <p className="text-lg">Đang tải sản phẩm nổi bật...</p>
       </div>
     );
   }
@@ -118,8 +155,12 @@ export default function FeaturedProducts() {
   if (!products.length) {
     return (
       <div className="text-center py-20 text-gray-500">
-        <p className="text-lg">No products available</p>
-        <p className="text-sm mt-2">Check back later for new products</p>
+        <p className="text-lg">
+          {searchQuery ? 'Không tìm thấy sản phẩm' : 'Hiện chưa có sản phẩm'}
+        </p>
+        <p className="text-sm mt-2">
+          {searchQuery ? 'Thử từ khóa khác' : 'Vui lòng quay lại sau để xem sản phẩm mới'}
+        </p>
       </div>
     );
   }

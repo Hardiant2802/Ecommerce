@@ -71,8 +71,8 @@ export default function RegisterPage() {
       });
       router.push('/');
     } catch (error) {
-      console.error('Registration error:', error);
-      setServerError('Registration failed. Email may already be in use.');
+      console.error('Lỗi đăng ký:', error);
+      setServerError('Đăng ký thất bại. Email có thể đã được sử dụng.');
     } finally {
       setLoading(false);
     }
@@ -83,9 +83,9 @@ export default function RegisterPage() {
       <div className="max-w-md w-full">
         <div className="bg-white rounded-lg shadow-sm p-8">
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Tạo tài khoản</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Join us today and start shopping!
+              Tham gia ngay hôm nay để bắt đầu mua sắm!
             </p>
           </div>
 
@@ -98,30 +98,30 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="First Name"
+                label="Tên"
                 type="text"
                 name="firstname"
                 value={formData.firstname}
                 onChange={handleChange}
                 error={errors.firstname}
-                placeholder="John"
+                placeholder="Ví dụ: Huy"
                 required
               />
 
               <Input
-                label="Last Name"
+                label="Họ"
                 type="text"
                 name="lastname"
                 value={formData.lastname}
                 onChange={handleChange}
                 error={errors.lastname}
-                placeholder="Doe"
+                placeholder="Ví dụ: Nguyễn"
                 required
               />
             </div>
 
             <Input
-              label="Email Address"
+              label="Địa chỉ email"
               type="email"
               name="email"
               value={formData.email}
@@ -132,25 +132,25 @@ export default function RegisterPage() {
             />
 
             <Input
-              label="Password"
+              label="Mật khẩu"
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
               error={errors.password}
-              placeholder="Create a strong password"
-              helperText="Must be at least 8 characters with uppercase, lowercase, and number"
+              placeholder="Tạo mật khẩu mạnh"
+              helperText="Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số"
               required
             />
 
             <Input
-              label="Confirm Password"
+              label="Xác nhận mật khẩu"
               type="password"
               name="confirmPassword"
               value={formData.confirmPassword}
               onChange={handleChange}
               error={errors.confirmPassword}
-              placeholder="Confirm your password"
+              placeholder="Nhập lại mật khẩu"
               required
             />
 
@@ -160,15 +160,15 @@ export default function RegisterPage() {
               size="lg"
               loading={loading}
             >
-              Create Account
+              Tạo tài khoản
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Already have an account?{' '}
+              Đã có tài khoản?{' '}
               <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
-                Sign in
+                Đăng nhập
               </Link>
             </p>
           </div>

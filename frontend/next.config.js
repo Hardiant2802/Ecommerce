@@ -23,6 +23,14 @@ const nextConfig = {
         protocol: 'https',
         hostname: '*.cloudinary.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'ahphonestore.id.vn',
+      },
+      {
+        protocol: 'https',
+        hostname: 'www.ahphonestore.id.vn',
+      },
     ],
   },
   env: {

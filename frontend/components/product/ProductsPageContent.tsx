@@ -6,6 +6,7 @@ import ProductGrid from '@/components/product/ProductGrid';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_CATEGORY_BY_URL_KEY, GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { SORT_OPTIONS } from '@/constants/categories';
+import { getFallbackProducts } from '@/constants/fallbackProducts';
 
 interface Product {
   id: string;
@@ -53,12 +54,17 @@ const BRANDS = [
   { name: 'Vivo', slug: 'vivo', category_id: 60 },
   { name: 'Asus', slug: 'asus', category_id: 61 },
   { name: 'Red Magic', slug: 'red-magic', category_id: 62 },
+  { name: 'Tai nghe', slug: 'tai-nghe', category_id: 63 },
+  { name: 'Phụ kiện', slug: 'phu-kien', category_id: 64 },
 ];
 
-const BRAND_CATEGORY_MAP: Record<string, number> = BRANDS.reduce((acc, brand) => {
-  acc[brand.slug] = brand.category_id;
-  return acc;
-}, {} as Record<string, number>);
+const BRAND_CATEGORY_MAP: Record<string, number> = {
+  ...BRANDS.reduce((acc, brand) => {
+    acc[brand.slug] = brand.category_id;
+    return acc;
+  }, {} as Record<string, number>),
+  'iphone': 55, // iPhone maps to Apple category
+};
 
 export default function ProductsPageContent({ forcedBrand }: ProductsPageContentProps) {
   const PAGE_SIZE = 12;
@@ -82,11 +88,13 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
     samsung: 'Samsung',
     xiaomi: 'Xiaomi',
     oppo: 'Oppo',
-    oneplus: 'One Plus',
+    oneplus: 'OnePlus',
     vivo: 'Vivo',
     asus: 'Asus',
     'red-magic': 'Red Magic',
     iphone: 'iPhone',
+    'tai-nghe': 'Tai nghe',
+    'phu-kien': 'Phụ kiện',
   };
 
   useEffect(() => {
@@ -133,9 +141,16 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         }
 
         if (!categoryId) {
-          setProducts([]);
-          setTotalCount(0);
-          setTotalPages(1);
+          const fallback = getFallbackProducts({
+            brand: activeBrand || category,
+            search,
+            sortBy,
+            page: currentPage,
+            pageSize: PAGE_SIZE,
+          });
+          setProducts(fallback.items);
+          setTotalCount(fallback.totalCount);
+          setTotalPages(fallback.totalPages);
           setLoading(false);
           return;
         }
@@ -182,11 +197,35 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
       setProducts(data.products.items);
       setTotalCount(data.products.total_count || 0);
       setTotalPages(data.products.page_info?.total_pages || 1);
+
+      if (!data.products.items.length) {
+        const fallback = getFallbackProducts({
+          brand: activeBrand || category,
+          search,
+          sortBy,
+          page: currentPage,
+          pageSize: PAGE_SIZE,
+        });
+        setProducts(fallback.items);
+        setTotalCount(fallback.totalCount);
+        setTotalPages(fallback.totalPages);
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
       }
-      console.error('Failed to load products:', error);
+      console.error('Không thể tải sản phẩm:', error);
+
+      const fallback = getFallbackProducts({
+        brand: activeBrand || category,
+        search,
+        sortBy,
+        page: currentPage,
+        pageSize: PAGE_SIZE,
+      });
+      setProducts(fallback.items);
+      setTotalCount(fallback.totalCount);
+      setTotalPages(fallback.totalPages);
     } finally {
       if (requestControllerRef.current === controller) {
         setLoading(false);
@@ -198,7 +237,9 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
     ? (BRAND_LABELS[activeBrand] || activeBrand)
     : category
       ? category.charAt(0).toUpperCase() + category.slice(1)
-      : 'All Products';
+      : search
+        ? `Kết quả tìm kiếm: "${search}"`
+        : 'Tất cả sản phẩm';
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -210,11 +251,11 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
 
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <p className="text-gray-600">
-              {loading ? 'Loading...' : `${totalCount} products`}
+              {loading ? 'Đang tải...' : `${totalCount} sản phẩm`}
             </p>
 
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Sort by:</label>
+              <label className="text-sm text-gray-600">Sắp xếp theo:</label>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
@@ -240,10 +281,10 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
               disabled={currentPage === 1}
               className="px-4 py-2 rounded-md border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
             >
-              Previous
+              Trước
             </button>
             <span className="text-sm text-gray-700">
-              Page {currentPage} / {totalPages}
+              Trang {currentPage} / {totalPages}
             </span>
             <button
               type="button"
@@ -251,7 +292,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
               disabled={currentPage === totalPages}
               className="px-4 py-2 rounded-md border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
             >
-              Next
+              Sau
             </button>
           </div>
         )}
@@ -259,10 +300,10 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         {!loading && products.length === 0 && (
           <div className="text-center py-20">
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              No products found
+              Không tìm thấy sản phẩm
             </h3>
             <p className="text-gray-600 mb-8">
-              Try adjusting your filters or check back later
+              Thử đổi từ khóa hoặc bộ lọc và tìm lại
             </p>
           </div>
         )}

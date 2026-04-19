@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { formatPrice } from '@/lib/utils/formatters';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import Button from '@/components/ui/Button';
-import { useCart } from '@/lib/hooks';
+import { useCart, useAuth } from '@/lib/hooks';
 import { useState } from 'react';
 
 interface ProductCardProps {
@@ -41,11 +42,13 @@ interface ProductCardProps {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
+  const router = useRouter();
   const { addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
   const [adding, setAdding] = useState(false);
 
-  const price = product.price_range.minimum_price.final_price || 
-    product.price_range.minimum_price.regular_price;
+  // Always show original price (no discount)
+  const price = product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
   const productUrl = `/product/${product.sku}`;
@@ -54,22 +57,28 @@ export default function ProductCard({ product }: ProductCardProps) {
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!inStock) return;
-    
+
+    // Require login before purchasing
+    if (!isAuthenticated) {
+      router.push(`/login?redirect=/product/${product.sku}`);
+      return;
+    }
+
     setAdding(true);
     try {
       await addToCart(product.sku, 1);
     } catch (error) {
       console.error('Error adding to cart:', error);
-      alert('Failed to add product to cart');
+      alert('Không thể thêm sản phẩm vào giỏ hàng');
     } finally {
       setAdding(false);
     }
   };
 
   return (
-    <Link href={productUrl} className="group">
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
-        <div className="relative aspect-square bg-gray-100">
+    <Link href={productUrl} className="group h-full">
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-lg transition-shadow h-full flex flex-col">
+        <div className="relative aspect-square bg-gray-100 flex-shrink-0">
           {/* Use regular img tag for external Magento images to avoid SSL/proxy issues */}
           <img
             src={imageUrl}
@@ -91,8 +100,8 @@ export default function ProductCard({ product }: ProductCardProps) {
             </div>
           )}
         </div>
-        <div className="p-4">
-          <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-primary-600 transition-colors">
+        <div className="p-4 flex flex-col flex-1">
+          <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-primary-600 transition-colors flex-1">
             {product.name}
           </h3>
           <p className="text-xl font-bold text-primary-600 mb-3">

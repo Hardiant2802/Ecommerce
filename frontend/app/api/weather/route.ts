@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'OpenWeatherMap API key not configured' },
+        { error: 'Chưa cấu hình API key OpenWeatherMap' },
         { status: 500 }
       );
     }
@@ -65,13 +65,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         ...cachedData,
         cached: true,
-        error: 'Using cached data due to API error',
+        error: 'Đang dùng dữ liệu đã lưu do lỗi API',
       });
     }
 
     return NextResponse.json(
       { 
-        error: error instanceof Error ? error.message : 'Failed to fetch weather data',
+        error: error instanceof Error ? error.message : 'Không thể lấy dữ liệu thời tiết',
         timestamp: Date.now(),
       },
       { status: 500 }

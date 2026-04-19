@@ -32,12 +32,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Initialize cart on mount
   useEffect(() => {
     const initCart = async () => {
-      // Skip cart initialization if no backend
-      if (!process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL?.includes('localhost')) {
-        setLoading(false);
-        return;
-      }
-
       let storedCartId = storage.getCartId();
 
       if (!storedCartId) {
@@ -59,13 +53,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       await loadCart(storedCartId);
       setLoading(false);
     };
-
-    // For demo mode without backend
-    if (process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL === 'http://localhost/graphql') {
-      console.log('Demo mode: No Magento backend connected');
-      setLoading(false);
-      return;
-    }
 
     initCart();
   }, []);
