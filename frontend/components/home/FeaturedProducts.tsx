@@ -13,6 +13,8 @@ interface FeaturedProductsProps {
   searchQuery?: string;
 }
 
+const HOME_PHONE_CATEGORY_IDS = ['54'];
+
 function hashString(value: string): number {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -30,6 +32,91 @@ function sortProductsBySeed(items: Product[], seed: string): Product[] {
   });
 }
 
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function includesAny(value: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => value.includes(keyword));
+}
+
+const PHONE_HINTS = [
+  'dien thoai',
+  'smartphone',
+  'iphone',
+  'galaxy',
+  'redmi',
+  'oneplus',
+  'oppo',
+  'vivo',
+  'rog phone',
+  'red magic',
+  'pixel',
+  'nubia',
+];
+
+const ACCESSORY_HINTS = [
+  'tai nghe',
+  'headphone',
+  'airpods',
+  'phu kien',
+  'op lung',
+  'bao da',
+  'sac',
+  'cap ',
+  'adapter',
+  'charger',
+  'cuong luc',
+  'mag safe',
+  'magsafe',
+  'dock',
+  'loa ',
+  'speaker',
+  'pin du phong',
+  'power bank',
+  'watch strap',
+  'cable',
+];
+
+function buildProductSearchText(product: Product): string {
+  const categoryText = (product.categories || [])
+    .map((category) => `${category.name || ''} ${category.url_key || ''} ${category.url_path || ''}`)
+    .join(' ');
+
+  return normalizeText(`${product.name || ''} ${product.sku || ''} ${product.url_key || ''} ${categoryText}`);
+}
+
+function getHomePriority(product: Product): number {
+  const text = buildProductSearchText(product);
+  const isPhone = includesAny(text, PHONE_HINTS);
+  const isAccessory = includesAny(text, ACCESSORY_HINTS);
+
+  if (isPhone && !isAccessory) return 0;
+  if (!isPhone && isAccessory) return 2;
+  if (isPhone) return 0;
+  if (isAccessory) return 2;
+  return 1;
+}
+
+function sortProductsForHome(items: Product[], seed: string, prioritizePhones: boolean): Product[] {
+  return [...items].sort((a, b) => {
+    if (prioritizePhones) {
+      const priorityDiff = getHomePriority(a) - getHomePriority(b);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+    }
+
+    const aKey = hashString(`${a.sku}-${seed}`);
+    const bKey = hashString(`${b.sku}-${seed}`);
+    return aKey - bKey;
+  });
+}
+
 export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsProps) {
   const PAGE_SIZE = 16;
   const [products, setProducts] = useState<Product[]>([]);
@@ -39,6 +126,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
   const [totalPages, setTotalPages] = useState(1);
   const [shuffleSeed] = useState(() => `${Date.now()}-${Math.random()}`);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const prioritizePhones = !searchQuery.trim();
 
   const loadProducts = useCallback(async (page: number, append: boolean) => {
     requestControllerRef.current?.abort();
@@ -57,6 +145,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
         currentPage: number;
         filter: {
           price: { from: string };
+          category_id?: { in: string[] };
         };
         search?: string;
       } = {
@@ -66,6 +155,10 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
           price: { from: '0' },
         },
       };
+
+      if (prioritizePhones) {
+        variables.filter.category_id = { in: HOME_PHONE_CATEGORY_IDS };
+      }
 
       if (searchQuery) {
         variables.search = searchQuery;
@@ -93,8 +186,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
           (item, index, array) => array.findIndex((p) => p.id === item.id) === index
         );
 
-        // Shuffle only first load so subsequent "Xem thêm" keeps stable order.
-        return append ? deduped : sortProductsBySeed(deduped, shuffleSeed);
+        return sortProductsForHome(deduped, shuffleSeed, prioritizePhones);
       });
 
       setCurrentPage(data.products.page_info?.current_page || page);
@@ -118,7 +210,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
             array.findIndex((p: Product) => p.id === item.id) === index
         );
 
-        return append ? deduped : sortProductsBySeed(deduped, shuffleSeed);
+        return sortProductsForHome(deduped, shuffleSeed, prioritizePhones);
       });
       setCurrentPage(fallback.currentPage);
       setTotalPages(fallback.totalPages);
@@ -128,7 +220,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
         setLoadingMore(false);
       }
     }
-  }, [searchQuery, shuffleSeed]);
+  }, [prioritizePhones, searchQuery, shuffleSeed]);
 
   useEffect(() => {
     setCurrentPage(1);

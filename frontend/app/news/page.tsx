@@ -1,7 +1,7 @@
 import NewsGrid from '@/components/news/NewsGrid';
 
 export const metadata = {
-  title: 'Tin Tức Kinh Doanh | Mobile Phone Store',
+  title: 'Tin Tức Kinh Doanh | AH Phone Store',
   description: 'Cập nhật tin tức kinh doanh mới nhất từ VnExpress',
 };
 

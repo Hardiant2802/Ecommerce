@@ -20,6 +20,12 @@ export const GET_PRODUCTS = `
         sku
         name
         url_key
+        categories {
+          id
+          name
+          url_key
+          url_path
+        }
         updated_at
         stock_status
         price_range {

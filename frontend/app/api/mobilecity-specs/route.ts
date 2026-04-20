@@ -122,70 +122,103 @@ const TRUSTED_SPEC_DOMAINS = [
 ];
 
 const AHPHONESTORE_COMPAT_HINTS: Array<{ pattern: RegExp; url: string }> = [
-  {
-    pattern: /\biphone\s+17\b(?!\s*(pro|max|plus|e))/i,
-    url: 'https://mobilecity.vn/dien-thoai/iphone-17-pro-chinh-hang.html',
-  },
-  {
-    pattern: /\bsamsung\s+galaxy\s+s24\s*plus\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s24-chinh-hang.html',
-  },
-  {
-    pattern: /\bsamsung\s+galaxy\s+s25\s*plus\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s25-ultra-chinh-hang.html',
-  },
-  {
-    pattern: /\bxiaomi\s+17\s+pro\b(?!\s*max)/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-17-pro-max-5g.html',
-  },
-  {
-    pattern: /\bxiaomi\s+15\s+pro\b(?!\s*(max|plus|ultra|t))/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-15t-pro-cu-chinh-hang.html',
-  },
-  {
-    pattern: /\bxiaomi\s+14\s+pro\b(?!\s*(max|plus|ultra|t|note))/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-note-14-pro-4g-gia-re.html',
-  },
-  {
-    pattern: /\boppo\s+find\s*x7\s+ultra\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/oppo-find-x7-ultra-satellite-edition.html',
-  },
-  {
-    pattern: /\boneplus\s+ace\s+5\s+pro\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/oneplus-ace-pro.html',
-  },
-  {
-    pattern: /\boneplus\s+ace\s+5\b(?!\s*pro)/i,
-    url: 'https://mobilecity.vn/dien-thoai/oneplus-ace.html',
-  },
-  {
-    pattern: /\boneplus\s+ace\s+6\b(?!\s*(pro|ultra|turbo|t))/i,
-    url: 'https://mobilecity.vn/dien-thoai/oneplus-ace.html',
-  },
-  {
-    pattern: /\bred\s*magic\s+9\s+pro\s+plus\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/zte-nubia-red-magic-9-pro-plus-5g-snapdragon-8-gen-3.html',
-  },
-  {
-    pattern: /\bred\s*magic\s+9\s+pro\b(?!\s*plus)/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k90-pro-max.html',
-  },
-  {
-    pattern: /\bred\s*magic\s+8\s+pro\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k90-pro-max.html',
-  },
-  {
-    pattern: /\bred\s*magic\s+7\s+pro\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k90-pro-max.html',
-  },
-  {
-    pattern: /\bred\s*magic\s+6\s+pro\b/i,
-    url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k90-pro-max.html',
-  },
-  {
-    pattern: /\bred\s*magic\b(?!\s*(6|7|8|9|10))/i,
-    url: 'https://mobilecity.vn/dien-thoai/zte-nubia-red-magic-10-pro.html',
-  },
+  // ── Apple (most-specific first: Pro Max > Pro > Plus > base) ─────────────────
+  { pattern: /\biphone\s+17\s+pro\s+max\b/i,                url: 'https://mobilecity.vn/dien-thoai/iphone-17-pro-max-chinh-hang.html' },
+  { pattern: /\biphone\s+17\s+pro\b(?!\s*max)/i,             url: 'https://mobilecity.vn/dien-thoai/iphone-17-pro-chinh-hang.html' },
+  { pattern: /\biphone\s+17\b(?!\s*(pro|max|plus|e))/i,      url: 'https://mobilecity.vn/dien-thoai/iphone-17-chinh-hang.html' },
+  { pattern: /\biphone\s+16\s+pro\s+max\b/i,                url: 'https://mobilecity.vn/dien-thoai/iphone-16-pro-max-chinh-hang.html' },
+  { pattern: /\biphone\s+16\s+pro\b(?!\s*max)/i,             url: 'https://mobilecity.vn/dien-thoai/iphone-16-pro-chinh-hang-vn-a.html' },
+  { pattern: /\biphone\s+16\s+plus\b/i,                      url: 'https://mobilecity.vn/dien-thoai/iphone-16-plus-chinh-hang-vn-a.html' },
+  { pattern: /\biphone\s+16\b(?!\s*(pro|max|plus|e))/i,      url: 'https://mobilecity.vn/dien-thoai/iphone-16-chinh-hang-nho-gon.html' },
+  { pattern: /\biphone\s+15\s+pro\s+max\b/i,                url: 'https://mobilecity.vn/dien-thoai/iphone-15-pro-max-chinh-hang.html' },
+  { pattern: /\biphone\s+15\s+pro\b(?!\s*max)/i,             url: 'https://mobilecity.vn/dien-thoai/iphone-15-pro-chinh-hang-vn-a.html' },
+  { pattern: /\biphone\s+15\b(?!\s*(pro|max|plus))/i,        url: 'https://mobilecity.vn/dien-thoai/iphone-15-chinh-hang-nho-gon.html' },
+
+  // ── Samsung ──────────────────────────────────────────────────────────────────
+  { pattern: /\bsamsung\s+galaxy\s+s26\s+ultra\b/i,          url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s26-ultra-5g.html' },
+  { pattern: /\bsamsung\s+galaxy\s+s26\b(?!\s*(ultra|plus))/i, url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s26-chinh-hang.html' },
+  { pattern: /\bsamsung\s+galaxy\s+s25\s+ultra\b/i,          url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s25-ultra-chinh-hang.html' },
+  { pattern: /\bsamsung\s+galaxy\s+s25\s*plus\b/i,           url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s25-plus-chinh-hang.html' },
+  { pattern: /\bsamsung\s+galaxy\s+s24\s+ultra\b/i,          url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s24-ultra-5g.html' },
+  { pattern: /\bsamsung\s+galaxy\s+s24\s*plus\b/i,           url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-s24-plus-thiet-ke-dep.html' },
+  { pattern: /\bsamsung\s+galaxy\s+a35\b/i,                  url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-a35-chinh-hang-ip67.html' },
+  { pattern: /\bsamsung\s+galaxy\s+a56\b/i,                  url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-a56-5g.html' },
+  { pattern: /\bz\s+flip\s*7\b/i,                            url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-z-flip-7-chinh-hang.html' },
+  { pattern: /\bz\s+fold\s*7\b/i,                            url: 'https://mobilecity.vn/dien-thoai/samsung-galaxy-z-fold-7.html' },
+
+  // ── Xiaomi (Ultra > Pro Max > Pro > base) ────────────────────────────────────
+  { pattern: /\bxiaomi\s+17\s+ultra\b/i,                     url: 'https://mobilecity.vn/dien-thoai/xiaomi-17-ultra-5g.html' },
+  { pattern: /\bxiaomi\s+17\s+pro\s+max\b/i,                url: 'https://mobilecity.vn/dien-thoai/xiaomi-17-pro-max-5g.html' },
+  { pattern: /\bxiaomi\s+17\s+pro\b(?!\s*max)/i,             url: 'https://mobilecity.vn/dien-thoai/xiaomi-17-pro-5g.html' },
+  { pattern: /\bxiaomi\s+15\s+ultra\b/i,                     url: 'https://mobilecity.vn/dien-thoai/xiaomi-15-ultra-5g.html' },
+  { pattern: /\bxiaomi\s+15\s+pro\b(?!\s*(max|ultra|t))/i,   url: 'https://mobilecity.vn/dien-thoai/xiaomi-15-pro-5g-snapdragon-8-gen-4.html' },
+  { pattern: /\bxiaomi\s+14\s+ultra\b/i,                     url: 'https://mobilecity.vn/dien-thoai/xiaomi-14-ultra.html' },
+  { pattern: /\bxiaomi\s+14\s+pro\b(?!\s*(max|ultra|t))/i,   url: 'https://mobilecity.vn/dien-thoai/xiaomi-14-pro-xach-tay-snapdragon-8-gen-2.html' },
+  { pattern: /\bk80\s+pro\b/i,                               url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k80-pro-5g-snapdragon-8-gen-4.html' },
+  { pattern: /\bk70\s+ultra\b/i,                             url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k70-ultra-5g.html' },
+  { pattern: /\bk70\s+pro\b(?!\s*ultra)/i,                   url: 'https://mobilecity.vn/dien-thoai/xiaomi-redmi-k70-pro-sieu-manh.html' },
+
+  // ── OPPO (Ultra > Pro > base) ─────────────────────────────────────────────────
+  { pattern: /\boppo\s+find\s*x9\s+ultra\b/i,                url: 'https://mobilecity.vn/dien-thoai/oppo-find-x9-ultra.html' },
+  { pattern: /\boppo\s+find\s*x9\s+pro\b/i,                  url: 'https://mobilecity.vn/dien-thoai/oppo-find-x9-pro-sieu-manh.html' },
+  { pattern: /\boppo\s+find\s*x8\s+ultra\b/i,                url: 'https://mobilecity.vn/dien-thoai/oppo-find-x8-ultra-5g.html' },
+  { pattern: /\boppo\s+find\s*x8\s+pro\b/i,                  url: 'https://mobilecity.vn/dien-thoai/oppo-find-x8-pro-5g.html' },
+  { pattern: /\boppo\s+find\s*x8\b(?!\s*(ultra|pro|mini))/i, url: 'https://mobilecity.vn/dien-thoai/oppo-find-x8-sac-sieu-nhanh.html' },
+  { pattern: /\boppo\s+find\s*x7\s+ultra\b/i,                url: 'https://mobilecity.vn/dien-thoai/oppo-find-x7-ultra-satellite-edition.html' },
+  { pattern: /\boppo\s+find\s*x7\s+pro\b/i,                  url: 'https://mobilecity.vn/dien-thoai/oppo-find-x7-pro-5g.html' },
+  { pattern: /\boppo\s+find\s*x7\b(?!\s*(ultra|pro))/i,      url: 'https://mobilecity.vn/dien-thoai/oppo-find-x7-5g-hieu-nang-sieu-manh.html' },
+  { pattern: /\boppo\s+reno\s+15\b/i,                        url: 'https://mobilecity.vn/dien-thoai/oppo-reno15-pro-5g.html' },
+  { pattern: /\boppo\s+reno\s+14\b/i,                        url: 'https://mobilecity.vn/dien-thoai/oppo-reno14-f-5g-chinh-hang.html' },
+
+  // ── OnePlus ───────────────────────────────────────────────────────────────────
+  { pattern: /\boneplus\s+ace\s+5\s+ultra\b/i,               url: 'https://mobilecity.vn/dien-thoai/oneplus-ace-5-ultra-dimensity-9400-plus.html' },
+  { pattern: /\boneplus\s+ace\s+5\s+pro\b/i,                 url: 'https://mobilecity.vn/dien-thoai/oneplus-ace-5-pro-5g.html' },
+  { pattern: /\boneplus\s+ace\s+5\b(?!\s*(pro|ultra))/i,     url: 'https://mobilecity.vn/dien-thoai/oneplus-ace-5-5g-chip-snapdragon.html' },
+  { pattern: /\boneplus\s+ace\s+6\b(?!\s*(pro|ultra|t))/i,   url: 'https://mobilecity.vn/dien-thoai/oneplus-ace-6-gia-re.html' },
+  { pattern: /\boneplus\s+nord\s+5\b/i,                      url: 'https://mobilecity.vn/dien-thoai/oneplus-nord-5-pin-khung.html' },
+  { pattern: /\boneplus\s+nord\s+4\b(?!\s*lite)/i,           url: 'https://mobilecity.vn/dien-thoai/oneplus-nord-4-hieu-nang-sieu-manh.html' },
+  { pattern: /\boneplus\s+15\b(?!\s*(t|r|ace|nord))/i,       url: 'https://mobilecity.vn/dien-thoai/oneplus-15-5g.html' },
+  { pattern: /\boneplus\s+13r\b/i,                           url: 'https://mobilecity.vn/dien-thoai/oneplus-13r-pin-6500mah.html' },
+  { pattern: /\boneplus\s+13\b(?!\s*(r|t|ace|nord))/i,       url: 'https://mobilecity.vn/dien-thoai/oneplus-13-5g.html' },
+  { pattern: /\boneplus\s+12\b(?!\s*(r|t|ace|nord))/i,       url: 'https://mobilecity.vn/dien-thoai/oneplus-12-hieu-nang-sieu-manh.html' },
+
+  // ── Vivo (Ultra > Pro Mini > Pro > base) ─────────────────────────────────────
+  { pattern: /\bvivo\s+x200\s+ultra\b/i,                     url: 'https://mobilecity.vn/dien-thoai/vivo-x200-ultra-snapdragon-8-gen-4.html' },
+  { pattern: /\bvivo\s+x200\s+pro\s+mini\b/i,               url: 'https://mobilecity.vn/dien-thoai/vivo-x200-pro-mini.html' },
+  { pattern: /\bvivo\s+x200\s+pro\b(?!\s*mini)/i,            url: 'https://mobilecity.vn/dien-thoai/vivo-x200-pro-chip-khung-nhat.html' },
+  { pattern: /\bvivo\s+x200\b(?!\s*(ultra|pro))/i,           url: 'https://mobilecity.vn/dien-thoai/vivo-x200-5g-cao-cap.html' },
+  { pattern: /\bvivo\s+x300\s+ultra\b/i,                     url: 'https://mobilecity.vn/dien-thoai/vivo-x300-ultra-5g-sieu-khung.html' },
+  { pattern: /\bvivo\s+x300\s+pro\s+mini\b/i,               url: 'https://mobilecity.vn/dien-thoai/vivo-x300-pro-mini.html' },
+  { pattern: /\bvivo\s+x300\s+pro\b(?!\s*mini)/i,            url: 'https://mobilecity.vn/dien-thoai/vivo-x300-pro-camera-khung.html' },
+  { pattern: /\bvivo\s+x300\b(?!\s*(ultra|pro))/i,           url: 'https://mobilecity.vn/dien-thoai/vivo-x300-5g-camera-zeiss.html' },
+  { pattern: /\bvivo\s+x100\s+ultra\b/i,                     url: 'https://mobilecity.vn/dien-thoai/vivo-x100-ultra-5g-ket-noi-ve-tinh.html' },
+  { pattern: /\bvivo\s+x100\s+pro\b/i,                       url: 'https://mobilecity.vn/dien-thoai/vivo-x100-pro-hieu-nang-sieu-manh.html' },
+
+  // ── Asus ROG (Pro > base, most-specific first) ───────────────────────────────
+  { pattern: /\brog\s+phone\s+9\s+pro\b/i,                   url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-9-pro.html' },
+  { pattern: /\brog\s+phone\s+9\b(?!\s*pro)/i,               url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-9-snapdragon-8-elite.html' },
+  { pattern: /\brog\s+phone\s+8\s+pro\b/i,                   url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-8-pro-5g-snapdragon-8-gen-3.html' },
+  { pattern: /\brog\s+phone\s+8\b(?!\s*(pro|ultimate))/i,    url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-8-gaming-phone-sieu-manh.html' },
+  { pattern: /\brog\s+phone\s+7\s+ultimate\b/i,              url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-7-ultimate-dung-luong-pin-cao.html' },
+  { pattern: /\brog\s+phone\s+7\b(?!\s*(pro|ultimate|d))/i,  url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-7-thiet-ke-dep.html' },
+  { pattern: /\brog\s+phone\s+6\s+pro\b/i,                   url: 'https://mobilecity.vn/dien-thoai/asus-rog-phone-6-pro.html' },
+  { pattern: /\brog\s+phone\s+6\b(?!\s*(d|pro|ultimate))/i,  url: 'https://mobilecity.vn/asus/asus-rog-phone-6.html' },
+  { pattern: /\bzenfone\s+11\s+ultra\b/i,                    url: 'https://mobilecity.vn/dien-thoai/asus-zenfone-11-ultra.html' },
+  { pattern: /\bzenfone\s+10\b/i,                            url: 'https://mobilecity.vn/dien-thoai/asus-zenfone-10-gia-re.html' },
+
+  // ── Red Magic (most-specific first) ──────────────────────────────────────────
+  { pattern: /\bred\s*magic\s+10\s+pro\b/i,                  url: 'https://mobilecity.vn/dien-thoai/zte-nubia-red-magic-10-pro.html' },
+  { pattern: /\bred\s*magic\s+9\s+pro\s+plus\b/i,            url: 'https://mobilecity.vn/dien-thoai/zte-nubia-red-magic-9-pro-plus-5g-snapdragon-8-gen-3.html' },
+  { pattern: /\bred\s*magic\s+9\s+pro\b(?!\s*plus)/i,        url: 'https://mobilecity.vn/dien-thoai/zte-nubia-red-magic-9-pro-5g.html' },
+  { pattern: /\bred\s*magic\s+8s\s+pro\b/i,                  url: 'https://mobilecity.vn/dien-thoai/nubia-red-magic-8s-pro-5g.html' },
+  { pattern: /\bred\s*magic\s+8\s+pro\b/i,                   url: 'https://mobilecity.vn/dien-thoai/nubia-red-magic-8-pro-Snapdragon-8-gen-2.html' },
+  { pattern: /\bred\s*magic\s+7s\s+pro\b/i,                  url: 'https://mobilecity.vn/dien-thoai/nubia-red-magic-7s-pro.html' },
+  { pattern: /\bred\s*magic\s+7\s+pro\b/i,                   url: 'https://mobilecity.vn/zte/nubia-red-magic-7-pro.html' },
+  { pattern: /\bred\s*magic\s+7\b/i,                         url: 'https://mobilecity.vn/zte/nubia-red-magic-7.html' },
+  { pattern: /\bred\s*magic\s+6s\s+pro\b/i,                  url: 'https://mobilecity.vn/zte/nubia-red-magic-6s-pro.html' },
+  { pattern: /\bred\s*magic\s+6\s+pro\b/i,                   url: 'https://mobilecity.vn/dien-thoai/zte-nubia-red-magic-10-pro.html' }, // store "6 Pro" → show 10 Pro specs
+  { pattern: /\bred\s*magic\s+6\b/i,                         url: 'https://mobilecity.vn/zte/nubia-red-magic-6.html' },
+  { pattern: /\bred\s*magic\b(?!\s*(6|7|8|9|10))/i,          url: 'https://mobilecity.vn/zte/nubia-red-magic-7.html' },
 ];
 
 function stripTags(input: string): string {

@@ -48,6 +48,55 @@ export const GET_CART = `
   }
 `;
 
+export const GET_CUSTOMER_CART = `
+  query GetCustomerCart {
+    customerCart {
+      id
+      email
+      total_quantity
+      items {
+        id
+        product {
+          sku
+          name
+          price_range {
+            minimum_price {
+              regular_price {
+                value
+                currency
+              }
+            }
+          }
+          thumbnail {
+            url
+            label
+          }
+        }
+        quantity
+        prices {
+          price {
+            value
+            currency
+          }
+          row_total {
+            value
+            currency
+          }
+        }
+      }
+      prices {
+        grand_total {
+          value
+          currency
+        }
+        subtotal_excluding_tax {
+          value
+          currency
+        }
+      }
+    }
+  }
+`;
 export const ADD_TO_CART = `
   mutation AddProductsToCart(
     $cartId: String!

@@ -1129,7 +1129,12 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
     try {
       await addToCart(product.sku, quantity);
       alert('Đã thêm vào giỏ hàng!');
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
+        router.push(`/login?redirect=/product/${slug}`);
+        return;
+      }
       alert('Không thể thêm sản phẩm vào giỏ hàng');
     } finally {
       setAdding(false);
@@ -1162,12 +1167,10 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
         setMobileCitySpecs(data.specs);
       } else {
         setMobileCitySpecs([]);
-        setMobileCityError(data.message || 'Không lấy được thông số từ MobileCity, đang dùng thông số tổng hợp.');
       }
-    } catch (error) {
+    } catch {
       setMobileCitySpecs([]);
       setMobileCityDetailSpecs([]);
-      setMobileCityError(error instanceof Error ? error.message : 'Không thể tải thông số từ MobileCity, đang dùng thông số tổng hợp.');
     } finally {
       setLoadingMobileSpecs(false);
     }
@@ -1362,15 +1365,10 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
           {/* Spec Table — 2/3 width */}
           <div className="md:col-span-2">
             <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-lg font-bold text-gray-900">
                   {isAccessoryProduct ? '📌 Giới thiệu chung' : '📋 Thông số kỹ thuật'}
                 </h2>
-                {!isAccessoryProduct && mobileCitySourceUrl && (
-                  <a href={mobileCitySourceUrl} target="_blank" rel="noreferrer" className="text-sm text-yellow-600 hover:text-yellow-800 font-medium">
-                    Xem chi tiết trên MobileCity
-                  </a>
-                )}
               </div>
               {isAccessoryProduct ? (
                 <div className="px-6 py-5">
@@ -1379,13 +1377,17 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
                     dangerouslySetInnerHTML={{ __html: generalIntroHtml }}
                   />
                 </div>
-              ) : loadingMobileSpecs ? (
-                <div className="px-6 py-10 flex flex-col items-center gap-3 text-gray-500">
-                  <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-                  <p className="text-sm">Đang tải thông số kỹ thuật...</p>
-                </div>
               ) : (
                 <>
+                  {loadingMobileSpecs ? (
+                    <div className="px-6 py-8 flex flex-col items-center gap-3 text-gray-500">
+                      <svg className="animate-spin h-6 w-6 text-yellow-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      <span className="text-sm">Đang tải thông số kỹ thuật...</span>
+                    </div>
+                  ) : (
                   <table className="w-full text-sm">
                     <tbody>
                       {specs.map((row, i) => (
@@ -1398,6 +1400,7 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
                       ))}
                     </tbody>
                   </table>
+                  )}
                   <div className="px-6 pb-5 pt-3">
                     <button
                       onClick={() => {
@@ -1456,31 +1459,22 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
           </div>
         </div>
 
-        {/* ── Full description (if meaningful content from Magento) ── */}
-        {fullDescriptionHtml && (
-          <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">📝 Mô tả sản phẩm</h2>
-            <div
-              className="prose max-w-none text-gray-700 text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: fullDescriptionHtml }}
-            />
-          </div>
-        )}
+
 
       </div>
 
       {showSpecsModal && !isAccessoryProduct && (
-        <div className="fixed inset-0 z-50 bg-black/60 p-4 sm:p-8 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl bg-white rounded-xl shadow-2xl border border-amber-200">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-amber-200 bg-amber-50">
+        <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto">
+          <button
+            onClick={() => setShowSpecsModal(false)}
+            className="fixed top-4 right-4 z-[60] w-9 h-9 rounded-full bg-amber-600 text-white font-bold hover:bg-amber-700 flex items-center justify-center shadow-lg"
+            aria-label="Dong thong so"
+          >
+            ✕
+          </button>
+          <div className="mx-auto w-full max-w-3xl bg-white rounded-xl shadow-2xl border border-amber-200 my-8 mx-4 sm:mx-auto">
+            <div className="px-5 py-4 border-b border-amber-200 bg-amber-50">
               <h3 className="text-lg font-bold text-amber-900">{product.name} - Thông số chi tiết</h3>
-              <button
-                onClick={() => setShowSpecsModal(false)}
-                className="w-9 h-9 rounded-md bg-amber-600 text-white font-bold hover:bg-amber-700"
-                aria-label="Dong thong so"
-              >
-                x
-              </button>
             </div>
 
             <div className="p-4 sm:p-6">
@@ -1527,11 +1521,7 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
                 )
               )}
 
-              {mobileCitySourceUrl && (
-                <p className="text-xs text-gray-500 mt-3">
-                  Nguon doi soat: <a href={mobileCitySourceUrl} target="_blank" rel="noreferrer" className="text-primary-700 underline">MobileCity</a>
-                </p>
-              )}
+
             </div>
           </div>
         </div>

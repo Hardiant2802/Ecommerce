@@ -5,7 +5,7 @@ import { User, LoginCredentials, RegisterInput } from '@/types/user';
 import { storage } from '@/lib/utils/storage';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GENERATE_CUSTOMER_TOKEN, GET_CUSTOMER, CREATE_CUSTOMER } from '@/lib/graphql/queries/auth';
-import { CREATE_EMPTY_CART, MERGE_CARTS } from '@/lib/graphql/queries/cart';
+import { CREATE_EMPTY_CART, GET_CUSTOMER_CART, MERGE_CARTS } from '@/lib/graphql/queries/cart';
 
 function setAuthCookie(token: string | null) {
   if (typeof document !== 'undefined') {
@@ -14,41 +14,72 @@ function setAuthCookie(token: string | null) {
   }
 }
 
-// Helper function to merge guest cart with customer cart
-async function mergeGuestCartToCustomer(token: string): Promise<string | null> {
-  const guestCartId = storage.getCartId();
+function isAuthTokenInvalidError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('401') ||
+    message.includes('unauthorized') ||
+    message.includes("current customer isn't authorized") ||
+    message.includes('customer token')
+  );
+}
 
-  if (!guestCartId) {
-    return null;
+async function getOrCreateCustomerCartId(token: string): Promise<string | null> {
+  try {
+    const data = await graphqlClient<{ customerCart: { id: string } }>({
+      query: GET_CUSTOMER_CART,
+      token,
+      cache: 'no-store',
+    });
+
+    if (data.customerCart?.id) {
+      return data.customerCart.id;
+    }
+  } catch {
+    // Fall through to create cart.
   }
 
   try {
-    // Create a new cart for the logged-in customer
     const newCart = await graphqlClient<{ createEmptyCart: string }>({
       query: CREATE_EMPTY_CART,
-      token: token,
+      token,
     });
+    return newCart.createEmptyCart;
+  } catch {
+    return null;
+  }
+}
 
-    const customerCartId = newCart.createEmptyCart;
+// Helper function to merge guest cart with customer cart without replacing existing customer cart
+async function mergeGuestCartToCustomer(token: string): Promise<string | null> {
+  const guestCartId = storage.getCartId();
+  const customerCartId = await getOrCreateCustomerCartId(token);
 
-    // Merge guest cart into customer cart
+  if (!customerCartId) {
+    return null;
+  }
+
+  if (!guestCartId || guestCartId === customerCartId) {
+    storage.setCartId(customerCartId);
+    return customerCartId;
+  }
+
+  try {
     await graphqlClient({
       query: MERGE_CARTS,
       variables: {
         sourceCartId: guestCartId,
         destinationCartId: customerCartId,
       },
-      token: token,
+      token,
     });
-
-    // Update localStorage with new cart ID
-    storage.setCartId(customerCartId);
-
-    return customerCartId;
   } catch (error) {
-    console.error('Failed to merge cart:', error);
-    return null;
+    // Keep customer cart as source of truth even if guest merge fails.
+    console.error('Failed to merge guest cart into customer cart:', error);
   }
+
+  storage.setCartId(customerCartId);
+  return customerCartId;
 }
 
 interface AuthContextType {
@@ -90,8 +121,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(data.customer);
         } catch (error) {
           console.error('Failed to load user:', error);
-          storage.removeAuthToken();
-          setToken(null);
+          if (isAuthTokenInvalidError(error)) {
+            storage.removeAuthToken();
+            setAuthCookie(null);
+            setToken(null);
+          }
         }
       }
       setLoading(false);
@@ -156,7 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     register,
     logout,
-    isAuthenticated: !!user && !!token,
+    isAuthenticated: !!token,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

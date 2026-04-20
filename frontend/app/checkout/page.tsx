@@ -6,24 +6,39 @@ import Link from 'next/link';
 import { useCart, useAuth } from '@/lib/hooks';
 import { formatPrice } from '@/lib/utils/formatters';
 
+type PaymentMethod = 'cod' | 'banking' | 'momo';
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const itemId = searchParams.get('itemId');
   const { cart, loading } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
 
   const [orderNote, setOrderNote] = useState('');
-  const [codPlaced, setCodPlaced] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
+  const [orderPlaced, setOrderPlaced] = useState(false);
   const [orderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
 
+  const paymentMethodLabel: Record<PaymentMethod, string> = {
+    cod: 'Thanh toán khi nhận hàng (COD)',
+    banking: 'Chuyển khoản ngân hàng',
+    momo: 'Ví MoMo',
+  };
+
+  const paymentMethodDescription: Record<PaymentMethod, string> = {
+    cod: 'Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.',
+    banking: 'Tạm thời ghi nhận lựa chọn chuyển khoản. Bạn sẽ cấu hình thông tin tài khoản nhận tiền sau.',
+    momo: 'Tạm thời ghi nhận lựa chọn ví MoMo. Bạn sẽ tích hợp quét QR/điều hướng thanh toán sau.',
+  };
+
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!authLoading && !isAuthenticated) {
       router.push('/login?redirect=/checkout');
     }
-  }, [isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, router]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="container-custom">
@@ -63,8 +78,7 @@ export default function CheckoutPage() {
   }, 0);
   const formattedTotal = formatPrice(orderTotal, currency);
 
-  // COD success screen
-  if (codPlaced) {
+  if (orderPlaced) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="container-custom">
@@ -79,7 +93,7 @@ export default function CheckoutPage() {
               Mã đơn hàng: <strong className="text-primary-700">{orderId}</strong>
             </p>
             <p className="text-gray-600 mb-6 text-sm">
-              Bạn đã chọn thanh toán khi nhận hàng (COD). Chúng tôi sẽ liên hệ xác nhận sớm nhất.
+              Bạn đã chọn {paymentMethodLabel[paymentMethod].toLowerCase()}. Chúng tôi sẽ liên hệ xác nhận sớm nhất.
             </p>
             <Link
               href="/"
@@ -167,29 +181,65 @@ export default function CheckoutPage() {
               />
             </div>
 
-            {/* Thanh toán COD */}
+            {/* Phương thức thanh toán */}
             <div className="bg-white rounded-xl shadow-sm p-5 space-y-3">
               <h2 className="font-bold text-gray-900">Phương thức thanh toán</h2>
 
-              <div className="border border-primary-200 rounded-lg px-4 py-3 bg-primary-50">
-                <p className="text-sm font-medium text-gray-900">Thanh toán khi nhận hàng (COD)</p>
-                <p className="text-xs text-gray-600 mt-1">Bạn thanh toán bằng tiền mặt khi nhận sản phẩm.</p>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('cod')}
+                  className={`w-full text-left border rounded-lg px-4 py-3 transition-colors ${
+                    paymentMethod === 'cod' ? 'border-primary-300 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <p className="text-sm font-medium text-gray-900">Thanh toán khi nhận hàng (COD)</p>
+                  <p className="text-xs text-gray-600 mt-1">Thanh toán tiền mặt khi nhận hàng.</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('banking')}
+                  className={`w-full text-left border rounded-lg px-4 py-3 transition-colors ${
+                    paymentMethod === 'banking' ? 'border-primary-300 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-gray-900">Chuyển khoản ngân hàng</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Bạn sẽ xử lý sau</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">Đặt đơn với hình thức chuyển khoản.</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('momo')}
+                  className={`w-full text-left border rounded-lg px-4 py-3 transition-colors ${
+                    paymentMethod === 'momo' ? 'border-primary-300 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-gray-900">Ví MoMo</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Bạn sẽ xử lý sau</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">Đặt đơn với hình thức ví điện tử MoMo.</p>
+                </button>
               </div>
 
               <button
-                onClick={() => setCodPlaced(true)}
+                onClick={() => setOrderPlaced(true)}
                 className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-xl transition-colors"
               >
-                Xác nhận đặt hàng
+                Xác nhận đặt hàng ({paymentMethodLabel[paymentMethod]})
               </button>
             </div>
           </div>
 
-          {/* Right: thông tin COD */}
+          {/* Right: thông tin phương thức đã chọn */}
           <div className="space-y-4">
             <div className="bg-white rounded-xl shadow-sm p-6 text-sm text-gray-700 space-y-3">
-              <h3 className="font-bold text-gray-900">Thanh toán khi nhận hàng</h3>
-              <p>Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.</p>
+              <h3 className="font-bold text-gray-900">{paymentMethodLabel[paymentMethod]}</h3>
+              <p>{paymentMethodDescription[paymentMethod]}</p>
               <p className="text-xs text-gray-500">
                 Đơn hàng sẽ được xử lý trong 24 giờ làm việc sau khi đặt hàng.
               </p>

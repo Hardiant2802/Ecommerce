@@ -68,6 +68,11 @@ export default function ProductCard({ product }: ProductCardProps) {
     try {
       await addToCart(product.sku, 1);
     } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
+        router.push(`/login?redirect=/product/${product.sku}`);
+        return;
+      }
       console.error('Error adding to cart:', error);
       alert('Không thể thêm sản phẩm vào giỏ hàng');
     } finally {
