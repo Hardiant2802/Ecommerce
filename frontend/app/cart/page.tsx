@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth, useCart } from '@/lib/hooks';
 import CartItem from '@/components/cart/CartItem';
@@ -13,12 +13,6 @@ export default function CartPage() {
   const { cart, updateQuantity, removeItem, loading: cartLoading } = useCart();
   const router = useRouter();
   const [updatingItemIds, setUpdatingItemIds] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      router.push('/login?redirect=/cart');
-    }
-  }, [authLoading, isAuthenticated, router]);
 
   const handleCheckout = (itemId: string) => {
     router.push(`/checkout?itemId=${itemId}`);
