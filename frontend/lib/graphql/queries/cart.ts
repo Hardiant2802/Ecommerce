@@ -17,6 +17,14 @@ export const GET_CART = `
         product {
           sku
           name
+          price_range {
+            minimum_price {
+              regular_price {
+                value
+                currency
+              }
+            }
+          }
           thumbnail {
             url
             label
@@ -97,6 +105,7 @@ export const GET_CUSTOMER_CART = `
     }
   }
 `;
+
 export const ADD_TO_CART = `
   mutation AddProductsToCart(
     $cartId: String!

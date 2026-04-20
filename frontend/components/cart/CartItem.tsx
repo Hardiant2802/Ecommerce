@@ -76,8 +76,12 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
       </div>
 
       <div className="flex-grow">
-        <h3 className="font-semibold text-gray-900 mb-1">{item.product.name}</h3>
-        <p className="text-sm text-gray-600 mb-2">{formatPrice(originalUnitPrice, originalCurrency)}</p>
+        <h3 className="font-semibold text-gray-900 mb-1">
+          {item.product.name}
+        </h3>
+        <p className="text-sm text-gray-600 mb-2">
+          {formatPrice(originalUnitPrice, originalCurrency)}
+        </p>
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center border border-gray-300 rounded-md">
@@ -117,7 +121,9 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
       </div>
 
       <div className="text-right">
-        <p className="font-bold text-lg">{formatPrice(originalRowTotal, originalCurrency)}</p>
+        <p className="font-bold text-lg">
+          {formatPrice(originalRowTotal, originalCurrency)}
+        </p>
       </div>
     </div>
   );

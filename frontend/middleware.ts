@@ -13,15 +13,6 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl, 307);
   }
 
-  if (request.nextUrl.pathname.startsWith('/cart')) {
-    const authCookie = request.cookies.get('auth_token');
-    if (!authCookie) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', '/cart');
-      return NextResponse.redirect(loginUrl);
-    }
-  }
-
   return NextResponse.next();
 }
 
