@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatPrice } from '@/lib/utils/formatters';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
+import { buildProductPath } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
 import { useCart, useAuth } from '@/lib/hooks';
 import { useState } from 'react';
@@ -38,6 +39,11 @@ interface ProductCardProps {
     }>;
     updated_at?: string;
     stock_status?: string;
+    categories?: Array<{
+      name?: string;
+      url_key?: string;
+      url_path?: string;
+    }>;
   };
 }
 
@@ -51,7 +57,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   const price = product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
-  const productUrl = `/product/${product.sku}`;
+  const productUrl = buildProductPath(product);
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 
   const handleAddToCart = async (e: React.MouseEvent) => {
@@ -60,7 +66,7 @@ export default function ProductCard({ product }: ProductCardProps) {
 
     // Require login before purchasing
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/product/${product.sku}`);
+      router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
       return;
     }
 
@@ -70,7 +76,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
       if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
-        router.push(`/login?redirect=/product/${product.sku}`);
+        router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
         return;
       }
       console.error('Error adding to cart:', error);

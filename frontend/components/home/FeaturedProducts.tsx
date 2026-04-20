@@ -6,6 +6,7 @@ import { graphqlClient } from '@/lib/graphql/client';
 import { GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import { formatPrice } from '@/lib/utils/formatters';
+import { buildProductPath } from '@/lib/utils/productRouting';
 import { Product } from '@/types/product';
 import { getFallbackProducts } from '../../constants/fallbackProducts';
 
@@ -262,61 +263,62 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {products.map((product) => {
           const imageUrl = getPrimaryProductImageUrl(product);
+          const productUrl = buildProductPath(product);
 
           return (
-          <Link
-            key={product.id}
-            href={`/product/${product.sku}`}
-            className="group"
-          >
-            <div className="card hover:shadow-lg transition-shadow bg-white rounded-lg overflow-hidden border border-gray-100 flex flex-col h-full">
-              <div className="aspect-square bg-gray-50 relative overflow-hidden p-4">
-                {product.image?.url ? (
-                  <img
-                    src={imageUrl}
-                    alt={product.name}
-                    className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                    onError={(event) => {
-                      const target = event.currentTarget;
-                      if (!target.src.endsWith('/images/placeholder.svg')) {
-                        target.src = '/images/placeholder.svg';
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">
-                    <span className="text-4xl">📱</span>
+            <Link
+              key={product.id}
+              href={productUrl}
+              className="group"
+            >
+              <div className="card hover:shadow-lg transition-shadow bg-white rounded-lg overflow-hidden border border-gray-100 flex flex-col h-full">
+                <div className="aspect-square bg-gray-50 relative overflow-hidden p-4">
+                  {product.image?.url ? (
+                    <img
+                      src={imageUrl}
+                      alt={product.name}
+                      className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                      onError={(event) => {
+                        const target = event.currentTarget;
+                        if (!target.src.endsWith('/images/placeholder.svg')) {
+                          target.src = '/images/placeholder.svg';
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      <span className="text-4xl">📱</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 flex flex-col flex-grow">
+                  <h3 className="font-semibold text-lg mb-2 group-hover:text-primary-600 transition-colors line-clamp-2 text-gray-900 min-h-[3.5rem]">
+                    {product.name}
+                  </h3>
+
+                  <div className="flex items-baseline gap-2 mb-4">
+                    <span className="text-xl font-bold text-primary-600">
+                      {formatPrice(
+                        product.price_range?.minimum_price?.final_price?.value ||
+                        product.price_range?.minimum_price?.regular_price?.value ||
+                        0,
+                        product.price_range?.minimum_price?.final_price?.currency ||
+                        product.price_range?.minimum_price?.regular_price?.currency ||
+                        'VND'
+                      )}
+                    </span>
                   </div>
-                )}
-              </div>
 
-              <div className="p-4 flex flex-col flex-grow">
-                <h3 className="font-semibold text-lg mb-2 group-hover:text-primary-600 transition-colors line-clamp-2 text-gray-900 min-h-[3.5rem]">
-                  {product.name}
-                </h3>
-
-                <div className="flex items-baseline gap-2 mb-4">
-                  <span className="text-xl font-bold text-primary-600">
-                    {formatPrice(
-                      product.price_range?.minimum_price?.final_price?.value ||
-                      product.price_range?.minimum_price?.regular_price?.value ||
-                      0,
-                      product.price_range?.minimum_price?.final_price?.currency ||
-                      product.price_range?.minimum_price?.regular_price?.currency ||
-                      'VND'
-                    )}
-                  </span>
-                </div>
-
-                <div className="mt-auto">
-                  <button className="w-full bg-primary-600 text-white py-2.5 rounded-md font-medium hover:bg-primary-700 transition-colors">
-                    Mua
-                  </button>
+                  <div className="mt-auto">
+                    <button className="w-full bg-primary-600 text-white py-2.5 rounded-md font-medium hover:bg-primary-700 transition-colors">
+                      Mua
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </Link>
+            </Link>
           );
         })}
       </div>

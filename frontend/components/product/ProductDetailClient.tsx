@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { graphqlClient } from '@/lib/graphql/client';
-import { GET_PRODUCT_DETAIL } from '@/lib/graphql/queries/products';
+import { GET_PRODUCT_BY_URL_KEY, GET_PRODUCT_DETAIL } from '@/lib/graphql/queries/products';
 import { formatPrice } from '@/lib/utils/formatters';
 import { getPrimaryProductImageUrl, withImageVersion } from '@/lib/utils/image';
+import { buildProductPath } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
 import { useCart, useAuth } from '@/lib/hooks';
 
@@ -1060,9 +1061,12 @@ function buildGeneralIntro(product: Product, displayPrice: string, inStock: bool
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-interface ProductDetailClientProps { slug: string }
+interface ProductDetailClientProps {
+  slug: string;
+  brand?: string;
+}
 
-export default function ProductDetailClient({ slug }: ProductDetailClientProps) {
+export default function ProductDetailClient({ slug, brand: requestedBrand }: ProductDetailClientProps) {
   const router = useRouter();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1078,6 +1082,7 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
   const requestControllerRef = useRef<AbortController | null>(null);
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
+  const requestedPath = requestedBrand ? `/${requestedBrand}/${slug}` : `/product/${slug}`;
 
   useEffect(() => {
     setMobileCitySpecs(null);
@@ -1097,20 +1102,46 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
 
+  // Redirect legacy /product/:slug and mismatched brand paths to canonical product URL.
+  useEffect(() => {
+    if (!product) return;
+    const canonicalPath = buildProductPath(product);
+    if (requestedPath !== canonicalPath) {
+      router.replace(canonicalPath);
+    }
+  }, [product, requestedPath, router]);
+
   const loadProduct = async () => {
     requestControllerRef.current?.abort();
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setLoading(true);
+    setProduct(null);
     try {
-      const data = await graphqlClient<{ products: { items: Product[] } }>({
+      const byUrlKey = await graphqlClient<{ products: { items: Product[] } }>({
+        query: GET_PRODUCT_BY_URL_KEY,
+        variables: { urlKey: slug },
+        cache: 'default',
+        ttlMs: 15 * 1000,
+        signal: controller.signal,
+      });
+
+      if (byUrlKey.products.items.length > 0) {
+        setProduct(byUrlKey.products.items[0]);
+        return;
+      }
+
+      const bySku = await graphqlClient<{ products: { items: Product[] } }>({
         query: GET_PRODUCT_DETAIL,
         variables: { sku: slug },
         cache: 'default',
         ttlMs: 15 * 1000,
         signal: controller.signal,
       });
-      if (data.products.items.length > 0) setProduct(data.products.items[0]);
+
+      if (bySku.products.items.length > 0) {
+        setProduct(bySku.products.items[0]);
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       console.error('Failed to load product:', error);
@@ -1121,8 +1152,9 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
 
   const handleAddToCart = async () => {
     if (!product) return;
+    const productUrl = product ? buildProductPath(product) : requestedPath;
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/product/${slug}`);
+      router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
       return;
     }
     setAdding(true);
@@ -1132,7 +1164,7 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
       if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
-        router.push(`/login?redirect=/product/${slug}`);
+        router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
         return;
       }
       alert('Không thể thêm sản phẩm vào giỏ hàng');
@@ -1245,7 +1277,7 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
     if (!t.src.endsWith('/images/placeholder.svg')) t.src = '/images/placeholder.svg';
   };
 
-  const { brand } = detectBrandModel(product.name);
+  const { brand: detectedBrand } = detectBrandModel(product.name);
 
   return (
     <div className="min-h-screen bg-gray-50 py-6">
@@ -1289,7 +1321,7 @@ export default function ProductDetailClient({ slug }: ProductDetailClientProps) 
             <div className="p-6 flex flex-col">
               {/* Brand badge */}
               <span className="inline-block text-xs font-semibold text-primary-600 bg-primary-50 px-2 py-0.5 rounded mb-2 self-start">
-                {brand}
+                {detectedBrand}
               </span>
 
               <h1 className="text-2xl font-bold text-gray-900 mb-3">{product.name}</h1>

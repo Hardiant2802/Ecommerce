@@ -110,6 +110,55 @@ export const GET_PRODUCT_DETAIL = `
   }
 `;
 
+export const GET_PRODUCT_BY_URL_KEY = `
+  query GetProductByUrlKey($urlKey: String!) {
+    products(filter: { url_key: { eq: $urlKey } }) {
+      items {
+        id
+        sku
+        name
+        url_key
+        updated_at
+        stock_status
+        price_range {
+          minimum_price {
+            regular_price {
+              value
+              currency
+            }
+            final_price {
+              value
+              currency
+            }
+          }
+        }
+        image {
+          url
+          label
+        }
+        media_gallery {
+          url
+          label
+          position
+          disabled
+        }
+        description {
+          html
+        }
+        short_description {
+          html
+        }
+        categories {
+          id
+          name
+          url_key
+          url_path
+        }
+      }
+    }
+  }
+`;
+
 export const GET_CATEGORIES = `
   query GetCategories {
     categories(filters: { ids: { in: ["3", "4", "5"] } }) {
