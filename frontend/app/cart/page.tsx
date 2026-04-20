@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth, useCart } from '@/lib/hooks';
 import CartItem from '@/components/cart/CartItem';
@@ -89,15 +88,13 @@ export default function CartPage() {
   }
 
   const isEmpty = !cart || !cart.items || cart.items.length === 0;
-  const originalTotal =
-    cart?.items?.reduce((sum, item) => {
-      const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
-      return sum + unitPrice * item.quantity;
-    }, 0) ?? 0;
-  const originalCurrency =
-    cart?.items?.[0]?.product.price_range?.minimum_price?.regular_price?.currency ??
-    cart?.items?.[0]?.prices?.price?.currency ??
-    'VND';
+  const originalTotal = cart?.items?.reduce((sum, item) => {
+    const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
+    return sum + unitPrice * item.quantity;
+  }, 0) ?? 0;
+  const originalCurrency = cart?.items?.[0]?.product.price_range?.minimum_price?.regular_price?.currency
+    ?? cart?.items?.[0]?.prices?.price?.currency
+    ?? 'VND';
 
   if (isEmpty) {
     return (
@@ -118,7 +115,9 @@ export default function CartPage() {
               />
             </svg>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Giỏ hàng của bạn đang trống</h2>
-            <p className="text-gray-600 mb-8">Có vẻ bạn chưa thêm sản phẩm nào vào giỏ hàng.</p>
+            <p className="text-gray-600 mb-8">
+              Có vẻ bạn chưa thêm sản phẩm nào vào giỏ hàng.
+            </p>
             <Link href="/">
               <Button size="lg">Tiếp tục mua sắm</Button>
             </Link>
@@ -134,6 +133,7 @@ export default function CartPage() {
         <h1 className="text-3xl font-bold mb-8">Giỏ hàng</h1>
 
         <div className="grid md:grid-cols-3 gap-8">
+          {/* Cart Items */}
           <div className="md:col-span-2">
             <div className="bg-white rounded-lg shadow-sm p-6">
               {cart.items.map((item) => (
@@ -149,6 +149,7 @@ export default function CartPage() {
             </div>
           </div>
 
+          {/* Summary */}
           <div>
             <CartSummary
               subtotal={originalTotal}
