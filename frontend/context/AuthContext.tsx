@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { User, LoginCredentials, RegisterInput } from '@/types/user';
 import { storage } from '@/lib/utils/storage';
 import { graphqlClient } from '@/lib/graphql/client';
-import { GENERATE_CUSTOMER_TOKEN, GET_CUSTOMER, CREATE_CUSTOMER } from '@/lib/graphql/queries/auth';
+import { GENERATE_CUSTOMER_TOKEN, GET_CUSTOMER } from '@/lib/graphql/queries/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -110,19 +110,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (input: RegisterInput) => {
     try {
-      await graphqlClient<{ createCustomerV2: { customer: User } }>({
-        query: CREATE_CUSTOMER,
-        variables: {
-          input: {
-            firstname: input.firstname.trim(),
-            lastname: input.lastname.trim(),
-            email: input.email.trim(),
-            password: input.password,
-          },
+      const response = await fetch('/api/auth/register-with-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          firstname: input.firstname.trim(),
+          lastname: input.lastname.trim(),
+          email: input.email.trim(),
+          password: input.password,
+          otpVerificationToken: input.otpVerificationToken,
+        }),
       });
 
-      await login({ email: input.email, password: input.password });
+      const payload = (await response.json()) as {
+        token?: string;
+        user?: User;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || 'Registration failed.');
+      }
+
+      if (!payload.token || !payload.user) {
+        throw new Error('Registration succeeded but login session could not be created.');
+      }
+
+      setToken(payload.token);
+      setUser(payload.user);
+      storage.setAuthToken(payload.token);
     } catch (error) {
       throw new Error(formatGraphqlError(error));
     }
