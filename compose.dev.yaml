@@ -30,6 +30,15 @@ services:
     depends_on:
       - db
 
+  redis:
+    ports:
+      - "6379:6379"
+
+  mailcatcher:
+    ports:
+      - "1080:1080"
+      - "1025:1025"
+
   ## Selenium support, uncomment to enable
   #selenium:
   #  image: selenium/standalone-chrome-debug:3.8.1
