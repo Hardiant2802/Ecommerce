@@ -10,7 +10,7 @@ import { validateEmail, validatePassword, validateRequired, validateConfirmPassw
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, loading: authLoading } = useAuth();
   const [formData, setFormData] = useState({
     firstname: '',
     lastname: '',
@@ -54,9 +54,9 @@ export default function RegisterPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
+
     if (!validate()) return;
 
     setLoading(true);
@@ -64,15 +64,14 @@ export default function RegisterPage() {
 
     try {
       await register({
-        firstname: formData.firstname,
-        lastname: formData.lastname,
-        email: formData.email,
+        firstname: formData.firstname.trim(),
+        lastname: formData.lastname.trim(),
+        email: formData.email.trim(),
         password: formData.password,
       });
-      router.push('/');
+      router.replace('/');
     } catch (error) {
-      console.error('Lỗi đăng ký:', error);
-      setServerError('Đăng ký thất bại. Email có thể đã được sử dụng.');
+      setServerError(error instanceof Error ? error.message : 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -83,9 +82,9 @@ export default function RegisterPage() {
       <div className="max-w-md w-full">
         <div className="bg-white rounded-lg shadow-sm p-8">
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Tạo tài khoản</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Tham gia ngay hôm nay để bắt đầu mua sắm!
+              Join us today and start shopping!
             </p>
           </div>
 
@@ -98,30 +97,30 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Tên"
+                label="First Name"
                 type="text"
                 name="firstname"
                 value={formData.firstname}
                 onChange={handleChange}
                 error={errors.firstname}
-                placeholder="Ví dụ: Huy"
+                placeholder="John"
                 required
               />
 
               <Input
-                label="Họ"
+                label="Last Name"
                 type="text"
                 name="lastname"
                 value={formData.lastname}
                 onChange={handleChange}
                 error={errors.lastname}
-                placeholder="Ví dụ: Nguyễn"
+                placeholder="Doe"
                 required
               />
             </div>
 
             <Input
-              label="Địa chỉ email"
+              label="Email Address"
               type="email"
               name="email"
               value={formData.email}
@@ -132,25 +131,25 @@ export default function RegisterPage() {
             />
 
             <Input
-              label="Mật khẩu"
+              label="Password"
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
               error={errors.password}
-              placeholder="Tạo mật khẩu mạnh"
-              helperText="Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số"
+              placeholder="Create a strong password"
+              helperText="Must be at least 8 characters with uppercase, lowercase, and number"
               required
             />
 
             <Input
-              label="Xác nhận mật khẩu"
+              label="Confirm Password"
               type="password"
               name="confirmPassword"
               value={formData.confirmPassword}
               onChange={handleChange}
               error={errors.confirmPassword}
-              placeholder="Nhập lại mật khẩu"
+              placeholder="Confirm your password"
               required
             />
 
@@ -158,17 +157,17 @@ export default function RegisterPage() {
               type="submit"
               fullWidth
               size="lg"
-              loading={loading}
+              loading={loading || authLoading}
             >
-              Tạo tài khoản
+              Create Account
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Đã có tài khoản?{' '}
+              Already have an account?{' '}
               <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
-                Đăng nhập
+                Sign in
               </Link>
             </p>
           </div>
