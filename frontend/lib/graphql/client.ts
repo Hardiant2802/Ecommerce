@@ -154,6 +154,9 @@ export async function graphqlClient<T>({
 
     return await doRequest();
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
     console.error('GraphQL Client Error:', error);
     throw error;
   } finally {

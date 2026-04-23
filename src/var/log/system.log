@@ -1,0 +1,11 @@
+[2026-04-21T08:05:43.854412+00:00] main.INFO: Source table payment_services_order_status_data_production_submitted_hash does not exist. Skipping data migration... [] []
+[2026-04-21T08:17:26.727804+00:00] main.ERROR: crontab -l 2>/dev/null 2>&1
+no crontab for app [] []
+[2026-04-21T08:17:26.734857+00:00] main.ERROR: crontab -l 2>/dev/null 2>&1
+no crontab for app [] []
+[2026-04-21T08:17:26.760804+00:00] main.INFO: echo "
+#~ MAGENTO START 69dd2b02e1f3a65918182048ea4e29979a849d8942e8f53ed20a4bf10e529b36
+* * * * * /usr/local/bin/php /var/www/html/bin/magento cron:run >> /var/www/html/var/log/magento.cron.log 2>&1
+#~ MAGENTO END 69dd2b02e1f3a65918182048ea4e29979a849d8942e8f53ed20a4bf10e529b36
+" 2>&1 | crontab - 2>&1
+ [] []

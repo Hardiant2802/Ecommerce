@@ -1,7 +1,7 @@
 <?php
 /**
- * Copyright 2020 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 declare(strict_types=1);
 
@@ -44,7 +44,7 @@ class AddFixtureTest extends AbstractOverridesTest
     /**
      * Checks that fixtures added in method and data set nodes successfully applied
      *
-     * @dataProvider executeDataProvider
+     * @dataProvider testDataProvider
      *
      * @param string $expectedConfigValue
      * @return void
@@ -58,7 +58,7 @@ class AddFixtureTest extends AbstractOverridesTest
     /**
      * @return array
      */
-    public static function executeDataProvider(): array
+    public static function testDataProvider(): array
     {
         return [
             'first_data_set' => ['expectedConfigValue' => 'overridden config fixture value for method'],

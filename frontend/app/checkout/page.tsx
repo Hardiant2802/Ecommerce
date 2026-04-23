@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useCart, useAuth } from '@/lib/hooks';
 import { formatPrice } from '@/lib/utils/formatters';
+import QRCode from 'react-qr-code';
 
 type PaymentMethod = 'cod' | 'banking' | 'momo';
 
@@ -19,6 +20,9 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [orderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
+  const [momoQR, setMomoQR] = useState<string | null>(null);
+  const [momoLoading, setMomoLoading] = useState(false);
+  const [momoError, setMomoError] = useState<string | null>(null);
 
   const paymentMethodLabel: Record<PaymentMethod, string> = {
     cod: 'Thanh toán khi nhận hàng (COD)',
@@ -26,17 +30,52 @@ export default function CheckoutPage() {
     momo: 'Ví MoMo',
   };
 
-  const paymentMethodDescription: Record<PaymentMethod, string> = {
-    cod: 'Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.',
-    banking: 'Tạm thời ghi nhận lựa chọn chuyển khoản. Bạn sẽ cấu hình thông tin tài khoản nhận tiền sau.',
-    momo: 'Tạm thời ghi nhận lựa chọn ví MoMo. Bạn sẽ tích hợp quét QR/điều hướng thanh toán sau.',
-  };
-
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.push('/login?redirect=/checkout');
     }
   }, [authLoading, isAuthenticated, router]);
+
+  useEffect(() => {
+    setMomoQR(null);
+    setMomoError(null);
+  }, [paymentMethod]);
+
+  const handleMomoPayment = async () => {
+    setMomoLoading(true);
+    setMomoError(null);
+    try {
+      const response = await fetch('/api/momo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: Math.round(orderTotal),
+          orderId,
+          orderInfo: `Thanh toán đơn hàng ${orderId}`,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.payUrl) {
+        setMomoQR(data.payUrl);
+      } else {
+        setMomoError('Không thể tạo QR MoMo. Vui lòng thử lại.');
+      }
+    } catch {
+      setMomoError('Lỗi kết nối. Vui lòng thử lại.');
+    } finally {
+      setMomoLoading(false);
+    }
+  };
+
+  const handleConfirmOrder = async () => {
+    if (paymentMethod === 'momo') {
+      await handleMomoPayment();
+    } else {
+      setOrderPlaced(true);
+    }
+  };
 
   if (authLoading || loading) {
     return (
@@ -110,7 +149,6 @@ export default function CheckoutPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container-custom">
-        {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
           <Link href="/" className="hover:text-primary-600">Trang chủ</Link>
           <span>/</span>
@@ -122,9 +160,7 @@ export default function CheckoutPage() {
         <h1 className="text-2xl font-bold mb-6">Thanh toán</h1>
 
         <div className="grid md:grid-cols-2 gap-8">
-          {/* Left: đơn hàng + ghi chú */}
           <div className="space-y-4">
-            {/* Danh sách sản phẩm */}
             <div className="bg-white rounded-xl shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100">
                 <h2 className="font-bold text-gray-900">Đơn hàng của bạn</h2>
@@ -167,7 +203,6 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* Ghi chú */}
             <div className="bg-white rounded-xl shadow-sm p-5">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Ghi chú đơn hàng (tuỳ chọn)
@@ -181,7 +216,6 @@ export default function CheckoutPage() {
               />
             </div>
 
-            {/* Phương thức thanh toán */}
             <div className="bg-white rounded-xl shadow-sm p-5 space-y-3">
               <h2 className="font-bold text-gray-900">Phương thức thanh toán</h2>
 
@@ -215,34 +249,94 @@ export default function CheckoutPage() {
                   type="button"
                   onClick={() => setPaymentMethod('momo')}
                   className={`w-full text-left border rounded-lg px-4 py-3 transition-colors ${
-                    paymentMethod === 'momo' ? 'border-primary-300 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                    paymentMethod === 'momo' ? 'border-pink-300 bg-pink-50' : 'border-gray-200 bg-white hover:border-gray-300'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-gray-900">Ví MoMo</p>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Bạn sẽ xử lý sau</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pink-600 text-lg">💳</span>
+                      <p className="text-sm font-medium text-gray-900">Ví MoMo</p>
+                    </div>
+                    {paymentMethod === 'momo' && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-semibold">Đã chọn</span>
+                    )}
                   </div>
-                  <p className="text-xs text-gray-600 mt-1">Đặt đơn với hình thức ví điện tử MoMo.</p>
+                  <p className="text-xs text-gray-600 mt-1">Quét mã QR để thanh toán qua ví MoMo.</p>
                 </button>
               </div>
 
               <button
-                onClick={() => setOrderPlaced(true)}
-                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-xl transition-colors"
+                onClick={handleConfirmOrder}
+                disabled={momoLoading}
+                className={`w-full font-bold py-3 rounded-xl transition-colors text-white ${
+                  paymentMethod === 'momo'
+                    ? 'bg-pink-600 hover:bg-pink-700'
+                    : 'bg-primary-600 hover:bg-primary-700'
+                } disabled:opacity-60 disabled:cursor-not-allowed`}
               >
-                Xác nhận đặt hàng ({paymentMethodLabel[paymentMethod]})
+                {momoLoading ? 'Đang tạo QR...' : `Xác nhận đặt hàng (${paymentMethodLabel[paymentMethod]})`}
               </button>
             </div>
           </div>
 
-          {/* Right: thông tin phương thức đã chọn */}
           <div className="space-y-4">
             <div className="bg-white rounded-xl shadow-sm p-6 text-sm text-gray-700 space-y-3">
-              <h3 className="font-bold text-gray-900">{paymentMethodLabel[paymentMethod]}</h3>
-              <p>{paymentMethodDescription[paymentMethod]}</p>
-              <p className="text-xs text-gray-500">
-                Đơn hàng sẽ được xử lý trong 24 giờ làm việc sau khi đặt hàng.
-              </p>
+              {paymentMethod === 'momo' && momoQR ? (
+                <div className="text-center space-y-4">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <span className="text-2xl">💜</span>
+                    <h3 className="font-bold text-pink-600 text-lg">Quét mã QR để thanh toán</h3>
+                  </div>
+                  <div className="border-4 border-pink-200 rounded-2xl p-4 inline-block bg-white">
+                    <QRCode
+                      value={momoQR}
+                      size={192}
+                      style={{ height: 'auto', maxWidth: '100%', width: '100%' }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">Mở app MoMo → Quét mã → Xác nhận thanh toán</p>
+                  <div className="bg-pink-50 rounded-lg p-3 text-left space-y-1">
+                    <p className="text-xs font-semibold text-pink-700">Số tiền: {formattedTotal}</p>
+                    <p className="text-xs text-gray-500">Mã đơn: {orderId}</p>
+                  </div>
+                  <button
+                    onClick={() => { setMomoQR(null); setOrderPlaced(true); }}
+                    className="w-full bg-pink-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-pink-700 transition-colors"
+                  >
+                    Tôi đã thanh toán xong
+                  </button>
+                </div>
+              ) : paymentMethod === 'momo' && !momoQR ? (
+                <div className="text-center space-y-3">
+                  <span className="text-4xl">💜</span>
+                  <h3 className="font-bold text-pink-600">Ví MoMo</h3>
+                  <p className="text-gray-600 text-xs">
+                    Bấm <strong>Xác nhận đặt hàng</strong> để tạo mã QR thanh toán.
+                  </p>
+                  {momoError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-red-600 text-xs">{momoError}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <h3 className="font-bold text-gray-900">
+                    {paymentMethod === 'cod' ? 'Thanh toán khi nhận hàng (COD)' : 'Chuyển khoản ngân hàng'}
+                  </h3>
+                  <p>
+                    {paymentMethod === 'cod'
+                      ? 'Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.'
+                      : 'Tạm thời ghi nhận lựa chọn chuyển khoản. Bạn sẽ cấu hình thông tin tài khoản nhận tiền sau.'}
+                  </p>
+                </>
+              )}
+
+              {paymentMethod !== 'momo' && (
+                <p className="text-xs text-gray-500">
+                  Đơn hàng sẽ được xử lý trong 24 giờ làm việc sau khi đặt hàng.
+                </p>
+              )}
             </div>
 
             <Link

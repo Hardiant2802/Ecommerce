@@ -63,7 +63,7 @@ const BRAND_CATEGORY_MAP: Record<string, number> = {
     acc[brand.slug] = brand.category_id;
     return acc;
   }, {} as Record<string, number>),
-  'iphone': 55, // iPhone maps to Apple category
+  'iphone': 55,
 };
 
 export default function ProductsPageContent({ forcedBrand }: ProductsPageContentProps) {
@@ -102,17 +102,33 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
   }, [category, activeBrand, search, sortBy]);
 
   useEffect(() => {
-    loadProducts();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+
+    loadProducts(controller, {
+      category,
+      activeBrand,
+      search,
+      sortBy,
+      currentPage,
+    });
 
     return () => {
-      requestControllerRef.current?.abort();
+      controller.abort();
     };
   }, [category, activeBrand, search, sortBy, currentPage]);
 
-  const loadProducts = async () => {
-    requestControllerRef.current?.abort();
-    const controller = new AbortController();
-    requestControllerRef.current = controller;
+  const loadProducts = async (
+    controller: AbortController,
+    params: {
+      category: string | null;
+      activeBrand: string | null | undefined;
+      search: string | null;
+      sortBy: string;
+      currentPage: number;
+    }
+  ) => {
+    const { category, activeBrand, search, sortBy, currentPage } = params;
 
     setLoading(true);
     try {
@@ -134,6 +150,8 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
             signal: controller.signal,
           });
 
+          if (controller.signal.aborted) return;
+
           const matchedCategory = categoryData.categories.items[0];
           if (matchedCategory) {
             categoryId = matchedCategory.id;
@@ -148,10 +166,11 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
             page: currentPage,
             pageSize: PAGE_SIZE,
           });
-          setProducts(fallback.items);
-          setTotalCount(fallback.totalCount);
-          setTotalPages(fallback.totalPages);
-          setLoading(false);
+          if (!controller.signal.aborted) {
+            setProducts(fallback.items);
+            setTotalCount(fallback.totalCount);
+            setTotalPages(fallback.totalPages);
+          }
           return;
         }
 
@@ -194,6 +213,8 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         signal: controller.signal,
       });
 
+      if (controller.signal.aborted) return;
+
       setProducts(data.products.items);
       setTotalCount(data.products.total_count || 0);
       setTotalPages(data.products.page_info?.total_pages || 1);
@@ -211,9 +232,9 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         setTotalPages(fallback.totalPages);
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
+      if (controller.signal.aborted) return;
+      if (error instanceof Error && error.name === 'AbortError') return;
+
       console.error('Không thể tải sản phẩm:', error);
 
       const fallback = getFallbackProducts({
@@ -227,7 +248,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
       setTotalCount(fallback.totalCount);
       setTotalPages(fallback.totalPages);
     } finally {
-      if (requestControllerRef.current === controller) {
+      if (!controller.signal.aborted) {
         setLoading(false);
       }
     }
