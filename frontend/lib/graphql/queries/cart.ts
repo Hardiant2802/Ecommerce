@@ -13,6 +13,7 @@ export const GET_CART = `
       email
       total_quantity
       items {
+        uid
         id
         product {
           sku
@@ -63,6 +64,7 @@ export const GET_CUSTOMER_CART = `
       email
       total_quantity
       items {
+        uid
         id
         product {
           sku

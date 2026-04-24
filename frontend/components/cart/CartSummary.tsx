@@ -33,7 +33,7 @@ export default function CartSummary({ subtotal, total, currency, itemCount }: Ca
         </div>
       </div>
 
-      <Link href="/checkout">
+      <Link href="/checkout?payment=banking">
         <Button fullWidth size="lg">
           Tiến hành thanh toán
         </Button>

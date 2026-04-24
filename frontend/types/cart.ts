@@ -1,6 +1,7 @@
 // Cart Types
 export interface CartItem {
   id: string;
+  uid?: string;
   product: {
     sku: string;
     name: string;

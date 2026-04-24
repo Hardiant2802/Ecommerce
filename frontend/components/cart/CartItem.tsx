@@ -6,6 +6,7 @@ import { formatPrice } from '@/lib/utils/formatters';
 interface CartItemProps {
   item: {
     id: string;
+    uid?: string;
     product: {
       sku: string;
       name: string;
@@ -47,7 +48,7 @@ interface CartItemProps {
   };
   onUpdateQuantity: (id: string, quantity: number) => void;
   onRemove: (id: string) => void;
-  onCheckout: (id: string) => void;
+  onCheckout: (id: string, sku: string) => void;
   updating: boolean;
 }
 
@@ -111,7 +112,7 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
           </button>
 
           <button
-            onClick={() => onCheckout(item.id)}
+            onClick={() => onCheckout(item.uid || item.id, item.product.sku)}
             disabled={updating}
             className="text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-3 py-1 rounded-md transition-colors"
           >

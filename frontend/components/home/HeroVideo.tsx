@@ -26,6 +26,7 @@ const HERO_ITEM_LIMIT = 12;
 const AUTO_ROTATE_MS = 5500;
 const FETCH_REFRESH_MS = 15 * 60 * 1000;
 const SWIPE_MS = 520;
+const SWIPE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 function normalizeVideos(input: VideoItem[]): VideoItem[] {
   const seen = new Set<string>();
@@ -46,6 +47,7 @@ function normalizeVideos(input: VideoItem[]): VideoItem[] {
 export default function HeroVideo() {
   const [videos, setVideos] = useState<VideoItem[]>(VIDEO_LIBRARY);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [isSwiping, setIsSwiping] = useState(false);
   const [swipeDirection, setSwipeDirection] = useState<1 | -1>(1);
@@ -59,12 +61,30 @@ export default function HeroVideo() {
   );
 
   const activeVideo = visibleVideos[activeIndex] || visibleVideos[0] || VIDEO_LIBRARY[0];
+  const selectedVideo =
+    visibleVideos.find((video) => video.id === selectedVideoId) ||
+    visibleVideos[0] ||
+    VIDEO_LIBRARY[0];
   const nextVideo =
     pendingIndex !== null
       ? visibleVideos[pendingIndex] || activeVideo
       : activeVideo;
-  const highlightedVideoId =
-    pendingIndex !== null ? (visibleVideos[pendingIndex]?.id || activeVideo.id) : activeVideo.id;
+  const highlightedVideoId = selectedVideo.id;
+  const swipeTransition = `transform ${SWIPE_MS}ms ${SWIPE_EASING}`;
+
+  useEffect(() => {
+    if (visibleVideos.length === 0) {
+      setSelectedVideoId(null);
+      return;
+    }
+
+    setSelectedVideoId((current) => {
+      if (current && visibleVideos.some((video) => video.id === current)) {
+        return current;
+      }
+      return visibleVideos[0].id;
+    });
+  }, [visibleVideos]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -74,11 +94,18 @@ export default function HeroVideo() {
     if (visibleVideos.length === 0) {
       return;
     }
+    if (pendingIndex !== null) {
+      return;
+    }
 
     const normalized = ((nextIndex % visibleVideos.length) + visibleVideos.length) % visibleVideos.length;
     if (normalized === activeIndexRef.current) {
       return;
     }
+
+    const current = activeIndexRef.current;
+    const forwardDistance = (normalized - current + visibleVideos.length) % visibleVideos.length;
+    const backwardDistance = (current - normalized + visibleVideos.length) % visibleVideos.length;
 
     if (swipeTimerRef.current) {
       clearTimeout(swipeTimerRef.current);
@@ -89,7 +116,7 @@ export default function HeroVideo() {
       swipeRafRef.current = null;
     }
 
-    setSwipeDirection(normalized > activeIndexRef.current ? 1 : -1);
+    setSwipeDirection(forwardDistance <= backwardDistance ? 1 : -1);
     setPendingIndex(normalized);
     setIsSwiping(false);
 
@@ -104,7 +131,7 @@ export default function HeroVideo() {
       setIsSwiping(false);
       swipeRafRef.current = null;
     }, SWIPE_MS + 20);
-  }, [visibleVideos.length]);
+  }, [pendingIndex, visibleVideos.length]);
 
   useEffect(() => {
     if (activeIndex < visibleVideos.length) {
@@ -117,17 +144,17 @@ export default function HeroVideo() {
   }, [activeIndex, visibleVideos.length]);
 
   useEffect(() => {
-    if (visibleVideos.length <= 1) {
+    if (visibleVideos.length <= 1 || pendingIndex !== null) {
       return;
     }
 
-    const timer = setInterval(() => {
+    const timer = setTimeout(() => {
       const nextIndex = (activeIndexRef.current + 1) % visibleVideos.length;
       switchToIndex(nextIndex);
     }, AUTO_ROTATE_MS);
 
-    return () => clearInterval(timer);
-  }, [switchToIndex, visibleVideos.length]);
+    return () => clearTimeout(timer);
+  }, [activeIndex, pendingIndex, switchToIndex, visibleVideos.length]);
 
   useEffect(() => {
     return () => {
@@ -184,10 +211,11 @@ export default function HeroVideo() {
               transform:
                 pendingIndex !== null && isSwiping
                   ? swipeDirection === 1
-                    ? 'translateX(-100%)'
-                    : 'translateX(100%)'
-                  : 'translateX(0)',
-              transition: `transform ${SWIPE_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                    ? 'translate3d(-100%, 0, 0)'
+                    : 'translate3d(100%, 0, 0)'
+                  : 'translate3d(0, 0, 0)',
+              transition: pendingIndex !== null ? swipeTransition : 'none',
+              willChange: pendingIndex !== null ? 'transform' : 'auto',
             }}
             onError={(e) => {
               (e.target as HTMLImageElement).src = '/images/xiaomi17-pro.jpg';
@@ -202,11 +230,12 @@ export default function HeroVideo() {
               style={{
                 transform:
                   isSwiping
-                    ? 'translateX(0)'
+                    ? 'translate3d(0, 0, 0)'
                     : swipeDirection === 1
-                      ? 'translateX(100%)'
-                      : 'translateX(-100%)',
-                transition: `transform ${SWIPE_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                      ? 'translate3d(100%, 0, 0)'
+                      : 'translate3d(-100%, 0, 0)',
+                transition: swipeTransition,
+                willChange: 'transform',
               }}
               onError={(e) => {
                 (e.target as HTMLImageElement).src = '/images/xiaomi17-pro.jpg';
@@ -220,10 +249,9 @@ export default function HeroVideo() {
       <div className="w-full lg:w-[35%] flex flex-col gap-2 h-[400px] lg:h-full">
           <div className="flex-1 rounded-xl overflow-hidden relative shadow-sm bg-black border border-gray-100">
           <iframe
-            key={activeVideo.id}
             className="absolute inset-0 w-full h-full"
-            src={`https://www.youtube-nocookie.com/embed/${activeVideo.id}?rel=0&modestbranding=1&playsinline=1`}
-            title={activeVideo.title}
+              src={`https://www.youtube-nocookie.com/embed/${selectedVideo.id}?rel=0&modestbranding=1&playsinline=1`}
+              title={selectedVideo.title}
             frameBorder="0"
             allowFullScreen
           />
@@ -231,10 +259,10 @@ export default function HeroVideo() {
 
         {/* Thumbnails */}
         <div className="h-[25%] flex gap-2 overflow-x-auto pb-1">
-          {visibleVideos.map((video, index) => (
+          {visibleVideos.map((video) => (
             <div
               key={video.id}
-              onClick={() => switchToIndex(index)}
+              onClick={() => setSelectedVideoId(video.id)}
               className={`relative min-w-[118px] sm:min-w-[130px] flex-1 rounded-lg overflow-hidden cursor-pointer group border-2 transition-all 
                 ${highlightedVideoId === video.id ? 'border-amber-500' : 'border-transparent'}`}
             >

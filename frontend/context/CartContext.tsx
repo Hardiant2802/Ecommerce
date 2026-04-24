@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { Cart, CartItem } from '@/types/cart';
 import { storage } from '@/lib/utils/storage';
+import { useAuth } from '@/context/AuthContext';
 import { graphqlClient } from '@/lib/graphql/client';
 import {
   CREATE_EMPTY_CART,
@@ -57,16 +58,79 @@ function isAuthTokenInvalidError(error: unknown): boolean {
   );
 }
 
+function getUnitPrice(item: CartItem): number {
+  return item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
+}
+
+function applyOptimisticQuantity(cart: Cart, cartItemId: number, nextQuantity: number): Cart {
+  const targetIndex = cart.items.findIndex((item) => Number(item.id) === cartItemId);
+  if (targetIndex === -1) {
+    return cart;
+  }
+
+  const targetItem = cart.items[targetIndex];
+  const currentQuantity = Math.max(1, Math.floor(targetItem.quantity));
+  const quantityDiff = nextQuantity - currentQuantity;
+
+  if (quantityDiff === 0) {
+    return cart;
+  }
+
+  const unitPrice = getUnitPrice(targetItem);
+  const nextItems = cart.items.map((item, index) => {
+    if (index !== targetIndex) {
+      return item;
+    }
+
+    return {
+      ...item,
+      quantity: nextQuantity,
+      prices: {
+        ...item.prices,
+        row_total: {
+          ...item.prices.row_total,
+          value: unitPrice * nextQuantity,
+        },
+      },
+    };
+  });
+
+  const nextSubtotal = Math.max(0, cart.prices.subtotal_excluding_tax.value + unitPrice * quantityDiff);
+  const nextGrandTotal = Math.max(0, cart.prices.grand_total.value + unitPrice * quantityDiff);
+
+  return {
+    ...cart,
+    items: nextItems,
+    total_quantity: Math.max(0, cart.total_quantity + quantityDiff),
+    prices: {
+      ...cart.prices,
+      subtotal_excluding_tax: {
+        ...cart.prices.subtotal_excluding_tax,
+        value: nextSubtotal,
+      },
+      grand_total: {
+        ...cart.prices.grand_total,
+        value: nextGrandTotal,
+      },
+    },
+  };
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
+  const { token: authToken, loading: authLoading } = useAuth();
   const [cart, setCart] = useState<Cart | null>(null);
   const [cartId, setCartId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const updateLocksRef = useRef<Set<number>>(new Set());
 
-  // Initialize cart on mount
+  // Keep cart in sync with auth state changes (login/logout) without requiring page reload.
   useEffect(() => {
     const initCart = async () => {
-      const authToken = storage.getAuthToken();
+      if (authLoading) {
+        return;
+      }
+
+      setLoading(true);
 
       // Nếu đã đăng nhập -> dùng customerCart (gắn với tài khoản, không cần cart ID)
       if (authToken) {
@@ -92,7 +156,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     };
 
     initCart();
-  }, []);
+  }, [authLoading, authToken]);
 
   /** Tạo cart mới cho khách vãng lai */
   const createGuestCart = async (): Promise<string | null> => {
@@ -154,7 +218,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshCart = async () => {
-    const authToken = storage.getAuthToken();
     if (authToken) {
       await loadCustomerCart(authToken);
     } else if (cartId) {
@@ -261,6 +324,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     let activeCartId = cart?.id || cartId || storage.getCartId();
     if (!activeCartId) return;
 
+    const previousCartSnapshot = cart;
     const authToken = storage.getAuthToken();
     const parsedItemId = Number(cartItemId);
     const parsedQuantity = Math.max(1, Math.floor(quantity));
@@ -275,6 +339,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     updateLocksRef.current.add(parsedItemId);
 
+    // Update UI immediately so +/- feels instant, then reconcile with server response.
+    setCart((prev) => (prev ? applyOptimisticQuantity(prev, parsedItemId, parsedQuantity) : prev));
+
     const executeUpdate = async (targetCartId: string) => {
       await graphqlClient({
         query: UPDATE_CART_ITEMS,
@@ -288,11 +355,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     try {
       await executeUpdate(activeCartId);
-
-      await refreshCart();
+      void refreshCart().catch((refreshError) => {
+        console.error('Background cart refresh failed:', refreshError);
+      });
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        if (previousCartSnapshot) {
+          setCart(previousCartSnapshot);
+        }
         throw new Error('AUTH_REQUIRED');
       }
 
@@ -302,11 +373,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
           activeCartId = recoveredCustomerCartId;
           setCartId(recoveredCustomerCartId);
           await executeUpdate(activeCartId);
-          await refreshCart();
+          void refreshCart().catch((refreshError) => {
+            console.error('Background cart refresh failed:', refreshError);
+          });
           return;
         }
       }
 
+      if (previousCartSnapshot) {
+        setCart(previousCartSnapshot);
+      }
       console.error('Failed to update quantity:', error);
       throw error;
     } finally {
