@@ -17,11 +17,11 @@ echo "[1/3] Exporting Magento database to $DB_FILE"
 bin/mysqldump --strip="@development" | gzip -9 > "$DB_FILE"
 
 echo "[2/3] Exporting product media to $MEDIA_FILE"
-if [ -d "$ROOT_DIR/src/pub/media/catalog/product" ]; then
-  tar -C "$ROOT_DIR/src/pub/media" -czf "$MEDIA_FILE" catalog/product
+if bin/clinotty test -d /var/www/html/pub/media/catalog/product; then
+  bin/clinotty sh -lc "cd /var/www/html/pub/media && tar -czf - catalog/product" > "$MEDIA_FILE"
 else
   echo "No product media folder found. Creating empty archive."
-  tar -C "$ROOT_DIR/src/pub/media" -czf "$MEDIA_FILE" --files-from /dev/null
+  tar -czf "$MEDIA_FILE" --files-from /dev/null
 fi
 
 echo "[3/3] Writing manifest"
