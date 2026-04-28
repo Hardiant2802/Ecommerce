@@ -86,7 +86,12 @@ export async function graphqlClient<T>({
   ttlMs = 90_000,
   signal,
 }: GraphQLRequestOptions): Promise<T> {
-  const canUseBrowserCache = typeof window !== 'undefined' && !token && ttlMs > 0 && cache !== 'no-store';
+  const canUseBrowserCache =
+    typeof window !== 'undefined' &&
+    !token &&
+    ttlMs > 0 &&
+    cache !== 'no-store' &&
+    !signal;
   const cacheKey = canUseBrowserCache ? createCacheKey(query, variables) : '';
 
   if (canUseBrowserCache) {
@@ -158,7 +163,12 @@ export async function graphqlClient<T>({
 
     return await doRequest();
   } catch (error) {
-    console.error('GraphQL Client Error:', error);
+    const isAbortError =
+      (error instanceof DOMException && error.name === 'AbortError') ||
+      (error instanceof Error && error.name === 'AbortError');
+    if (!isAbortError) {
+      console.error('GraphQL Client Error:', error);
+    }
     throw error;
   } finally {
     if (canUseBrowserCache) {
