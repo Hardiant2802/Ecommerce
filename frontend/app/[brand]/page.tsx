@@ -30,5 +30,5 @@ export default async function BrandPage({ params }: BrandPageProps) {
     notFound();
   }
 
-  return <ProductsPageContent forcedBrand={brand} />;
+  return <ProductsPageContent key={brand} forcedBrand={brand} />;
 }
