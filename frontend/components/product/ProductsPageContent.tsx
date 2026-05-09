@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ProductGrid from '@/components/product/ProductGrid';
 import { graphqlClient } from '@/lib/graphql/client';
@@ -63,7 +63,7 @@ const BRAND_CATEGORY_MAP: Record<string, number> = {
     acc[brand.slug] = brand.category_id;
     return acc;
   }, {} as Record<string, number>),
-  'iphone': 55,
+  'iphone': 55, // iPhone maps to Apple category
 };
 
 export default function ProductsPageContent({ forcedBrand }: ProductsPageContentProps) {
@@ -75,7 +75,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const requestControllerRef = useRef<AbortController | null>(null);
+  const latestRequestRef = useRef(0);
 
   const category = searchParams.get('category');
   const brand = searchParams.get('brand');
@@ -97,44 +97,16 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
     'phu-kien': 'Phụ kiện',
   };
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [category, activeBrand, search, sortBy]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    requestControllerRef.current = controller;
-
-    loadProducts(controller, {
-      category,
-      activeBrand,
-      search,
-      sortBy,
-      currentPage,
-    });
-
-    return () => {
-      controller.abort();
-    };
-  }, [category, activeBrand, search, sortBy, currentPage]);
-
-  const loadProducts = async (
-    controller: AbortController,
-    params: {
-      category: string | null;
-      activeBrand: string | null | undefined;
-      search: string | null;
-      sortBy: string;
-      currentPage: number;
-    }
-  ) => {
-    const { category, activeBrand, search, sortBy, currentPage } = params;
+  const loadProducts = useCallback(async (page: number) => {
+    const requestId = latestRequestRef.current + 1;
+    latestRequestRef.current = requestId;
+    const isStale = () => requestId !== latestRequestRef.current;
 
     setLoading(true);
     try {
       const variables: any = {
         pageSize: PAGE_SIZE,
-        currentPage,
+        currentPage: page,
       };
 
       const categorySlug = activeBrand || category;
@@ -147,10 +119,11 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
             variables: { urlKey: categorySlug },
             cache: 'default',
             ttlMs: 10 * 60 * 1000,
-            signal: controller.signal,
           });
 
-          if (controller.signal.aborted) return;
+          if (isStale()) {
+            return;
+          }
 
           const matchedCategory = categoryData.categories.items[0];
           if (matchedCategory) {
@@ -163,14 +136,16 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
             brand: activeBrand || category,
             search,
             sortBy,
-            page: currentPage,
+            page,
             pageSize: PAGE_SIZE,
           });
-          if (!controller.signal.aborted) {
-            setProducts(fallback.items);
-            setTotalCount(fallback.totalCount);
-            setTotalPages(fallback.totalPages);
+          if (isStale()) {
+            return;
           }
+          setProducts(fallback.items);
+          setTotalCount(fallback.totalCount);
+          setTotalPages(fallback.totalPages);
+          setCurrentPage(fallback.currentPage);
           return;
         }
 
@@ -210,10 +185,11 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         variables,
         cache: 'default',
         ttlMs: 10 * 1000,
-        signal: controller.signal,
       });
 
-      if (controller.signal.aborted) return;
+      if (isStale()) {
+        return;
+      }
 
       setProducts(data.products.items);
       setTotalCount(data.products.total_count || 0);
@@ -224,35 +200,54 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
           brand: activeBrand || category,
           search,
           sortBy,
-          page: currentPage,
+          page,
           pageSize: PAGE_SIZE,
         });
         setProducts(fallback.items);
         setTotalCount(fallback.totalCount);
         setTotalPages(fallback.totalPages);
+        setCurrentPage(fallback.currentPage);
       }
     } catch (error) {
-      if (controller.signal.aborted) return;
-      if (error instanceof Error && error.name === 'AbortError') return;
-
       console.error('Không thể tải sản phẩm:', error);
 
       const fallback = getFallbackProducts({
         brand: activeBrand || category,
         search,
         sortBy,
-        page: currentPage,
+        page,
         pageSize: PAGE_SIZE,
       });
+      if (isStale()) {
+        return;
+      }
       setProducts(fallback.items);
       setTotalCount(fallback.totalCount);
       setTotalPages(fallback.totalPages);
+      setCurrentPage(fallback.currentPage);
     } finally {
-      if (!controller.signal.aborted) {
+      if (!isStale()) {
         setLoading(false);
       }
     }
-  };
+  }, [PAGE_SIZE, activeBrand, category, search, sortBy]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    loadProducts(1);
+
+    return () => {
+      latestRequestRef.current += 1;
+    };
+  }, [category, activeBrand, search, sortBy, loadProducts]);
+
+  useEffect(() => {
+    if (currentPage === 1) {
+      return;
+    }
+
+    loadProducts(currentPage);
+  }, [currentPage, loadProducts]);
 
   const categoryName = activeBrand
     ? (BRAND_LABELS[activeBrand] || activeBrand)

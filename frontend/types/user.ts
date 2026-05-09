@@ -26,4 +26,5 @@ export interface RegisterInput {
   lastname: string;
   email: string;
   password: string;
+  otpVerificationToken: string;
 }

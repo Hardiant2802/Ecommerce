@@ -2185,3 +2185,81 @@ GraphQL (3:5)
 [2026-04-23T05:57:10.178598+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_10"],"mode":"matchingAnyTag"}} []
 [2026-04-23T05:57:10.179175+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_10"],"mode":"matchingAnyTag"}} []
 [2026-04-23T05:57:10.188445+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_10","FPC"],"mode":"matchingTag"}} []
+[2026-04-23T06:57:13.458850+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-04-23T06:57:14.346248+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-04-23T06:57:22.869628+00:00] main.ERROR: The current user cannot perform operations on cart "dw4hTCoWfnP55TydAXIGi36icPAX8U5D"
+
+GraphQL (3:5)
+2:   query GetCart($cartId: String!) {
+3:     cart(cart_id: $cartId) {
+       ^
+4:       id
+ {"exception":"[object] (GraphQL\\Error\\Error(code: 0): The current user cannot perform operations on cart \"dw4hTCoWfnP55TydAXIGi36icPAX8U5D\" at /var/www/html/vendor/webonyx/graphql-php/src/Error/Error.php:171)
+[previous exception] [object] (Magento\\Framework\\GraphQl\\Exception\\GraphQlAuthorizationException(code: 0): The current user cannot perform operations on cart \"dw4hTCoWfnP55TydAXIGi36icPAX8U5D\" at /var/www/html/vendor/magento/module-quote-graph-ql/Model/Cart/GetCartForUser.php:99)"} []
+[2026-04-23T08:19:47.075333+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-04-23T08:19:47.075348+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-04-23T08:33:57.348061+00:00] main.ERROR: Braintree\Configuration::merchantId needs to be set (or accessToken needs to be passed to Braintree\Gateway). [] []
+[2026-05-08T06:49:54.145166+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-05-08T06:49:54.145216+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-05-08T06:50:17.834024+00:00] main.ERROR: The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.
+
+GraphQL (3:5)
+2:   mutation GenerateCustomerToken($email: String!, $password: String!) {
+3:     generateCustomerToken(email: $email, password: $password) {
+       ^
+4:       token
+ {"exception":"[object] (GraphQL\\Error\\Error(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/webonyx/graphql-php/src/Error/Error.php:171)
+[previous exception] [object] (Magento\\Framework\\GraphQl\\Exception\\GraphQlAuthenticationException(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/magento/module-customer-graph-ql/Model/Resolver/GenerateCustomerToken.php:60)
+[previous exception] [object] (Magento\\Framework\\Exception\\AuthenticationException(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/magento/module-integration/Model/CustomerTokenService.php:66)"} []
+[2026-05-08T06:50:40.693161+00:00] main.ERROR: A customer with the same email address already exists in an associated website.
+
+GraphQL (3:5)
+2:   mutation CreateCustomer($input: CustomerCreateInput!) {
+3:     createCustomerV2(input: $input) {
+       ^
+4:       customer {
+ {"exception":"[object] (GraphQL\\Error\\Error(code: 0): A customer with the same email address already exists in an associated website. at /var/www/html/vendor/webonyx/graphql-php/src/Error/Error.php:171)
+[previous exception] [object] (Magento\\Framework\\GraphQl\\Exception\\GraphQlInputException(code: 0): A customer with the same email address already exists in an associated website. at /var/www/html/vendor/magento/module-customer-graph-ql/Model/Customer/CreateCustomerAccount.php:94)"} []
+[2026-05-08T06:50:48.330697+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11","GRAPHQL_QUERY_RESOLVER_RESULT"],"mode":"matchingTag"}} []
+[2026-05-08T06:50:48.332971+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11","FPC"],"mode":"matchingTag"}} []
+[2026-05-08T06:50:48.340841+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11"],"mode":"matchingAnyTag"}} []
+[2026-05-08T06:50:48.341323+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11"],"mode":"matchingAnyTag"}} []
+[2026-05-08T06:50:48.386055+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11","FPC"],"mode":"matchingTag"}} []
+[2026-05-08T06:50:48.403948+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11","GRAPHQL_QUERY_RESOLVER_RESULT"],"mode":"matchingTag"}} []
+[2026-05-08T06:50:48.404585+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11","FPC"],"mode":"matchingTag"}} []
+[2026-05-08T06:50:48.406099+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11"],"mode":"matchingAnyTag"}} []
+[2026-05-08T06:50:48.406707+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11"],"mode":"matchingAnyTag"}} []
+[2026-05-08T06:50:48.415445+00:00] main.DEBUG: cache_invalidate:  {"method":"POST","url":"https://localhost/graphql","invalidateInfo":{"tags":["customer_11","FPC"],"mode":"matchingTag"}} []
+[2026-05-08T06:50:52.360779+00:00] main.ERROR: The current user cannot perform operations on cart "dw4hTCoWfnP55TydAXIGi36icPAX8U5D"
+
+GraphQL (6:5)
+5:   ) {
+6:     mergeCarts(
+       ^
+7:       source_cart_id: $sourceCartId
+ {"exception":"[object] (GraphQL\\Error\\Error(code: 0): The current user cannot perform operations on cart \"dw4hTCoWfnP55TydAXIGi36icPAX8U5D\" at /var/www/html/vendor/webonyx/graphql-php/src/Error/Error.php:171)
+[previous exception] [object] (Magento\\Framework\\GraphQl\\Exception\\GraphQlAuthorizationException(code: 0): The current user cannot perform operations on cart \"dw4hTCoWfnP55TydAXIGi36icPAX8U5D\" at /var/www/html/vendor/magento/module-quote-graph-ql/Model/Cart/GetCartForUser.php:99)"} []
+[2026-05-08T07:57:02.176987+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-05-08T07:57:02.176987+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-05-08T07:57:20.975359+00:00] main.ERROR: The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.
+
+GraphQL (3:5)
+2:   mutation GenerateCustomerToken($email: String!, $password: String!) {
+3:     generateCustomerToken(email: $email, password: $password) {
+       ^
+4:       token
+ {"exception":"[object] (GraphQL\\Error\\Error(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/webonyx/graphql-php/src/Error/Error.php:171)
+[previous exception] [object] (Magento\\Framework\\GraphQl\\Exception\\GraphQlAuthenticationException(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/magento/module-customer-graph-ql/Model/Resolver/GenerateCustomerToken.php:60)
+[previous exception] [object] (Magento\\Framework\\Exception\\AuthenticationException(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/magento/module-integration/Model/CustomerTokenService.php:66)"} []
+[2026-05-09T09:47:20.141946+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-05-09T09:47:20.141995+00:00] main.CRITICAL: Consumer key has expired [] []
+[2026-05-09T09:47:59.120441+00:00] main.ERROR: The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.
+
+GraphQL (3:5)
+2:   mutation GenerateCustomerToken($email: String!, $password: String!) {
+3:     generateCustomerToken(email: $email, password: $password) {
+       ^
+4:       token
+ {"exception":"[object] (GraphQL\\Error\\Error(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/webonyx/graphql-php/src/Error/Error.php:171)
+[previous exception] [object] (Magento\\Framework\\GraphQl\\Exception\\GraphQlAuthenticationException(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/magento/module-customer-graph-ql/Model/Resolver/GenerateCustomerToken.php:60)
+[previous exception] [object] (Magento\\Framework\\Exception\\AuthenticationException(code: 0): The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later. at /var/www/html/vendor/magento/module-integration/Model/CustomerTokenService.php:66)"} []

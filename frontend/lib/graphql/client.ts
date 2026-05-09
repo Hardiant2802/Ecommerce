@@ -86,7 +86,12 @@ export async function graphqlClient<T>({
   ttlMs = 90_000,
   signal,
 }: GraphQLRequestOptions): Promise<T> {
-  const canUseBrowserCache = typeof window !== 'undefined' && !token && ttlMs > 0 && cache !== 'no-store';
+  const canUseBrowserCache =
+    typeof window !== 'undefined' &&
+    !token &&
+    ttlMs > 0 &&
+    cache !== 'no-store' &&
+    !signal;
   const cacheKey = canUseBrowserCache ? createCacheKey(query, variables) : '';
 
   if (canUseBrowserCache) {
@@ -122,18 +127,22 @@ export async function graphqlClient<T>({
       ...(tags.length > 0 && { next: { tags } }),
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    let result: GraphQLResponse<T> | null = null;
+    try {
+      result = (await response.json()) as GraphQLResponse<T>;
+    } catch {
+      result = null;
     }
 
-    const result: GraphQLResponse<T> = await response.json();
-
-    if (result.errors) {
-      console.error('GraphQL Errors:', result.errors);
+    if (result?.errors?.length) {
       throw new Error(result.errors[0]?.message || 'GraphQL error occurred');
     }
 
-    if (!result.data) {
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}`);
+    }
+
+    if (!result?.data) {
       throw new Error('No data returned from GraphQL');
     }
 
@@ -154,10 +163,12 @@ export async function graphqlClient<T>({
 
     return await doRequest();
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw error;
+    const isAbortError =
+      (error instanceof DOMException && error.name === 'AbortError') ||
+      (error instanceof Error && error.name === 'AbortError');
+    if (!isAbortError) {
+      console.error('GraphQL Client Error:', error);
     }
-    console.error('GraphQL Client Error:', error);
     throw error;
   } finally {
     if (canUseBrowserCache) {

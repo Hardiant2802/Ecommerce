@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 
 const CANONICAL_HOST = 'ahphonestore.id.vn';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const host = (request.headers.get('x-forwarded-host') || request.nextUrl.host || '').toLowerCase();
 
   if (host === `www.${CANONICAL_HOST}`) {
