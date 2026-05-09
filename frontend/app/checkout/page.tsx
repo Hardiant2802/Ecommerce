@@ -56,6 +56,45 @@ interface PendingCartSync {
   savedAt: number;
 }
 
+interface CheckoutItemPriceSource {
+  prices?: {
+    price?: {
+      value?: number;
+    };
+  };
+  product?: {
+    price_range?: {
+      minimum_price?: {
+        final_price?: {
+          value?: number;
+        };
+        regular_price?: {
+          value?: number;
+        };
+      };
+    };
+  };
+}
+
+function resolveCheckoutUnitPrice(item: CheckoutItemPriceSource): number {
+  const fromCartPrice = Number(item?.prices?.price?.value);
+  if (Number.isFinite(fromCartPrice) && fromCartPrice >= 0) {
+    return fromCartPrice;
+  }
+
+  const fromFinalPrice = Number(item?.product?.price_range?.minimum_price?.final_price?.value);
+  if (Number.isFinite(fromFinalPrice) && fromFinalPrice >= 0) {
+    return fromFinalPrice;
+  }
+
+  const fromRegularPrice = Number(item?.product?.price_range?.minimum_price?.regular_price?.value);
+  if (Number.isFinite(fromRegularPrice) && fromRegularPrice >= 0) {
+    return fromRegularPrice;
+  }
+
+  return 0;
+}
+
 function getSessionStorageSafe(): Storage | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -217,9 +256,7 @@ export default function CheckoutPage() {
   const currency = cart?.prices?.subtotal_excluding_tax?.currency || 'VND';
   const orderTotal = checkoutItems.reduce((sum, item) => {
     const quantity = resolveCheckoutItemQuantity(item.quantity);
-    const unitPrice =
-      item.product.price_range?.minimum_price?.regular_price?.value ??
-      item.prices.price.value;
+    const unitPrice = resolveCheckoutUnitPrice(item);
     return sum + unitPrice * quantity;
   }, 0);
   const formattedTotal = formatPrice(orderTotal, currency);
@@ -231,9 +268,7 @@ export default function CheckoutPage() {
     checkoutItems
       .map((item) => {
         const quantity = resolveCheckoutItemQuantity(item.quantity);
-        const unitPrice =
-          item.product.price_range?.minimum_price?.regular_price?.value ??
-          item.prices.price.value;
+        const unitPrice = resolveCheckoutUnitPrice(item);
         return `${item.id}:${quantity}:${Math.round(unitPrice)}:${item.product.sku}`;
       })
       .join('|'),
@@ -304,9 +339,7 @@ export default function CheckoutPage() {
   const buildItemsPayload = useCallback((): InternalOrderItemPayload[] => {
     return checkoutItems.map((item) => {
       const quantity = resolveCheckoutItemQuantity(item.quantity);
-      const unitPrice =
-        item.product.price_range?.minimum_price?.regular_price?.value ??
-        item.prices.price.value;
+      const unitPrice = resolveCheckoutUnitPrice(item);
 
       return {
         sku: item.product.sku,
@@ -789,9 +822,7 @@ export default function CheckoutPage() {
               <div className="divide-y divide-gray-50">
                 {checkoutItems.map((item) => {
                   const quantity = resolveCheckoutItemQuantity(item.quantity);
-                  const unitPrice =
-                    item.product.price_range?.minimum_price?.regular_price?.value ??
-                    item.prices.price.value;
+                  const unitPrice = resolveCheckoutUnitPrice(item);
                   return (
                     <div key={item.id} className="flex items-center gap-4 px-5 py-4">
                       <div className="w-14 h-14 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden">
