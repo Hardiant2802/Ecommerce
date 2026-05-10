@@ -172,9 +172,11 @@ bin/stop
 
 ---
 
-## 🌍 Deploy web công khai (Tunnel)
+## 🌍 Deploy web công khai (Self-hosted VPS + Tunnel)
 
-Dự án dùng **Cloudflare Tunnel** để expose ra internet. Domain: **https://ahphonestore.id.vn**
+Dự án chạy theo mô hình **self-hosted Docker trên VPS**.
+Cloudflare chỉ dùng cho **DNS Management** và **Cloudflare Tunnel (Argo)**.
+Không dùng Cloudflare Pages/Workers để deploy frontend.
 
 ### Khởi động toàn bộ stack (1 lệnh)
 
@@ -184,10 +186,8 @@ bin/public-up
 
 Lệnh này tự động chạy theo thứ tự:
 1. Start tất cả Docker containers
-2. Start Cloudflare tunnel → expose `https://ahphonestore.id.vn`
-3. Build Next.js production + start server port 3000
-
-> Frontend deploy ở **production build** (không phải dev server).
+2. Start container frontend Next.js (production)
+3. Start Cloudflare tunnel → expose `https://ahphonestore.id.vn`
 
 ### Tắt stack công khai
 
@@ -199,8 +199,8 @@ bin/public-down
 
 ```bash
 bin/tunnel-start              # Chỉ bật tunnel
-bin/frontend-start            # Chỉ start frontend (production)
-bin/frontend-start --rebuild  # Rebuild Next.js rồi start
+bin/frontend-start            # Chỉ start frontend container
+bin/frontend-start --rebuild  # Rebuild image frontend rồi start
 ```
 
 ### Tóm tắt: Dev vs Public
@@ -208,9 +208,9 @@ bin/frontend-start --rebuild  # Rebuild Next.js rồi start
 | | Phát triển cục bộ | Deploy công khai |
 |---|---|---|
 | **Khởi động** | `bin/start` + `npm run dev` | `bin/public-up` |
-| **Frontend mode** | Dev server (hot reload) | Production build |
+| **Frontend mode** | Dev server (hot reload) | Next.js trong Docker |
 | **Magento URL** | https://magento.test | https://ahphonestore.id.vn |
-| **Frontend URL** | http://localhost:3000 | http://localhost:3000 (qua tunnel) |
+| **Frontend URL** | http://localhost:3000 | https://ahphonestore.id.vn (qua tunnel) |
 | **Tunnel** | ❌ | ✅ Cloudflare |
 
 ---
@@ -298,6 +298,15 @@ npm run build        # Build production
 npm run start        # Chạy production build
 npm run lint         # Kiểm tra linting
 npm run type-check   # Kiểm tra TypeScript
+```
+
+### Production ops (VPS)
+
+```bash
+bin/public-health      # Kiểm tra nhanh toàn bộ FE/BE + domain public
+bin/backup-db          # Backup database Magento vào backups/db/
+bin/install-vps-autostart --start  # Cài systemd autostart và chạy ngay
+bin/uninstall-vps-autostart         # Gỡ systemd autostart
 ```
 
 ### Debug & Log

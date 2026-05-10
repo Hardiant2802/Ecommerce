@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
 set -o errexit
 
-if [ -f /tmp/ecommerce-frontend.pid ]; then
-  PID=$(cat /tmp/ecommerce-frontend.pid)
-  if kill -0 "$PID" 2>/dev/null; then
-    kill "$PID"
-    echo "Stopped frontend process $PID"
-  fi
-  rm -f /tmp/ecommerce-frontend.pid
-fi
-
-PIDS=$(ss -ltnp 2>/dev/null | grep ':3000 ' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u)
-if [ -n "$PIDS" ]; then
-  echo "$PIDS" | xargs -r kill
-  echo "Stopped all processes listening on port 3000"
-fi
+bin/docker-compose stop frontend || true
+bin/docker-compose rm -f frontend || true
+echo "Frontend container stopped."

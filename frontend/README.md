@@ -185,25 +185,20 @@ export const CATEGORIES = [
 
 ## 🚢 Deployment
 
-### Vercel (Recommended)
+### Self-hosted Docker on VPS
 
-1. Push code to GitHub
-2. Import project in Vercel
-3. Add environment variables
-4. Deploy!
-
-### Docker
+Build and run frontend container directly on VPS:
 
 ```bash
 docker build -t mobile-store .
 docker run -p 3000:3000 mobile-store
 ```
 
-### Traditional Hosting
+### Compose-based runtime (recommended in this repo)
 
 ```bash
-npm run build
-npm run start
+cd ..
+bin/docker-compose up -d frontend
 ```
 
 ## 🧪 Testing

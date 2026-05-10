@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+HOST="${1:-ahphonestore.id.vn}"
+API_URL="https://${HOST}/api/graphql"
+HOME_URL="https://${HOST}/"
+
+required_containers=(
+  e-commerce-app-1
+  e-commerce-frontend-1
+  e-commerce-phpfpm-1
+  e-commerce-db-1
+  e-commerce-redis-1
+  e-commerce-opensearch-1
+  e-commerce-rabbitmq-1
+  e-commerce-tunnel-1
+)
+
+failures=0
+
+echo "== Container status =="
+for name in "${required_containers[@]}"; do
+  if docker ps --format '{{.Names}}' | grep -qx "$name"; then
+    status="$(docker ps --format '{{.Names}}\t{{.Status}}' | awk -F '\t' -v n="$name" '$1==n {print $2}')"
+    echo "[OK] ${name}: ${status}"
+  else
+    echo "[FAIL] ${name}: not running"
+    failures=$((failures + 1))
+  fi
+done
+
+echo ""
+echo "== Public endpoints =="
+
+home_http="$(curl -sS --max-time 20 -o /tmp/public-health-home.out -w '%{http_code}' "$HOME_URL" || echo 000)"
+if [ "$home_http" = "200" ]; then
+  echo "[OK] ${HOME_URL} -> HTTP ${home_http}"
+else
+  echo "[FAIL] ${HOME_URL} -> HTTP ${home_http}"
+  failures=$((failures + 1))
+fi
+
+graphql_http="$(curl -sS --max-time 30 -o /tmp/public-health-graphql.out -w '%{http_code}' "$API_URL" \
+  -X POST -H 'Content-Type: application/json' \
+  -d '{"query":"{ storeConfig { store_name } }"}' || echo 000)"
+
+if [ "$graphql_http" = "200" ] && grep -q '"store_name"' /tmp/public-health-graphql.out; then
+  echo "[OK] ${API_URL} -> HTTP ${graphql_http}"
+else
+  echo "[FAIL] ${API_URL} -> HTTP ${graphql_http}"
+  echo "       body: $(head -c 160 /tmp/public-health-graphql.out 2>/dev/null || true)"
+  failures=$((failures + 1))
+fi
+
+echo ""
+if [ "$failures" -eq 0 ]; then
+  echo "HEALTH CHECK: PASS"
+  exit 0
+fi
+
+echo "HEALTH CHECK: FAIL (${failures} issue(s))"
+exit 1

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const runtime = 'edge';
+// Changed from 'edge' to 'nodejs' so that NODE_TLS_REJECT_UNAUTHORIZED=0 is
+// honoured when proxying to the Magento backend over self-signed HTTPS on the VPS.
+export const runtime = 'nodejs';
 
-const DEFAULT_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
+const DEFAULT_INTERNAL_MAGENTO_GRAPHQL_URL = 'https://127.0.0.1/graphql';
+const DEFAULT_PUBLIC_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
 const CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL = process.env.MAGENTO_GRAPHQL_UPSTREAM_URL?.trim() || '';
 const FRONTEND_HOSTS = new Set([
   'ahphonestore.id.vn',
+  'www.ahphonestore.id.vn',
   'e-commerce-75g.pages.dev',
   'main.e-commerce-75g.pages.dev',
 ]);
@@ -62,7 +66,7 @@ function isLocalRequestHost(hostname: string): boolean {
   return isLoopbackHost(hostname) || hostname.endsWith('.local');
 }
 
-function buildFallbackUpstream(frontendHost: string): string {
+function buildInternalUpstream(frontendHost: string): string {
   if (CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL) {
     try {
       const host = new URL(CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL).hostname.toLowerCase();
@@ -74,32 +78,54 @@ function buildFallbackUpstream(frontendHost: string): string {
     }
   }
 
-  return DEFAULT_MAGENTO_GRAPHQL_URL;
+  return DEFAULT_INTERNAL_MAGENTO_GRAPHQL_URL;
 }
 
 function resolveMagentoGraphqlUrl(request: NextRequest): string {
   const frontendHost = request.nextUrl.hostname.toLowerCase();
-  const fallbackUpstream = buildFallbackUpstream(frontendHost);
+  const internalUpstream = buildInternalUpstream(frontendHost);
+
+  // Public traffic should always use internal VPS upstream to avoid Cloudflare round-trips.
+  if (!isLocalRequestHost(frontendHost)) {
+    return internalUpstream;
+  }
+
   const rawPublicUrl = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL?.trim();
-  const candidateUrl = rawPublicUrl || CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL || DEFAULT_MAGENTO_GRAPHQL_URL;
+  const candidateUrl = rawPublicUrl || DEFAULT_PUBLIC_MAGENTO_GRAPHQL_URL;
 
   try {
     const targetHost = new URL(candidateUrl).hostname.toLowerCase();
 
-    // A deployed edge runtime cannot reach localhost from the user's browser context.
-    if (isLoopbackHost(targetHost) && !isLocalRequestHost(frontendHost)) {
-      return fallbackUpstream;
-    }
-
     // If API target points to a frontend host, it will recurse and return HTML instead of GraphQL JSON.
     if (targetHost === frontendHost || FRONTEND_HOSTS.has(targetHost)) {
-      return fallbackUpstream;
+      return internalUpstream;
     }
   } catch {
-    return fallbackUpstream;
+    return internalUpstream;
   }
 
   return candidateUrl;
+}
+
+function parseUpstreamPayload(responseText: string, responseStatus: number): { payload: unknown; isJson: boolean } {
+  if (!responseText) {
+    return { payload: {}, isJson: true };
+  }
+
+  try {
+    return { payload: JSON.parse(responseText), isJson: true };
+  } catch {
+    return {
+      isJson: false,
+      payload: {
+        errors: [
+          {
+            message: `Magento upstream returned non-JSON response (HTTP ${responseStatus})`,
+          },
+        ],
+      },
+    };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -141,19 +167,21 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(25_000),
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    const { payload, isJson } = parseUpstreamPayload(responseText, response.status);
 
-    if (canCache && response.ok) {
+    if (canCache && response.ok && isJson) {
       proxyCache.set(cacheKey, {
         expiresAt: Date.now() + GRAPHQL_PROXY_CACHE_TTL_MS,
         status: response.status,
-        payload: data,
+        payload,
       });
     }
 
-    return NextResponse.json(data, {
+    return NextResponse.json(payload, {
       status: response.status,
       headers: {
         'Access-Control-Allow-Origin': '*',
@@ -163,6 +191,7 @@ export async function POST(request: NextRequest) {
           ? 'public, max-age=5, s-maxage=5, stale-while-revalidate=10'
           : 'no-store',
         'X-GraphQL-Proxy-Cache': canCache ? 'MISS' : 'BYPASS',
+        'X-GraphQL-Upstream-Format': isJson ? 'JSON' : 'TEXT',
       }
     });
   } catch (error) {

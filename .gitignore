@@ -2,6 +2,12 @@ rootCA.pem
 .vscode/
 template/dev/team-data/*
 !template/dev/team-data/.gitkeep
+
+# VPS generated runtime data
+backups/db/
+backups/media/
+backups/reports/
+
 env/cloudflare.env
 env/cloudflare.local.env
 env/*.local

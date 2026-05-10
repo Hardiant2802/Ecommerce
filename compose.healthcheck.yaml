@@ -5,7 +5,7 @@ x-healthcheck-defaults: &healthcheck-defaults
 
 x-healthcheck-slow-start: &healthcheck-slow-start
   <<: *healthcheck-defaults
-  start_period: 5s
+  start_period: 60s
 
 services:
   app:
@@ -13,8 +13,15 @@ services:
       test: "curl --fail 127.0.0.1:8000"
       <<: *healthcheck-defaults
     depends_on:
+      frontend:
+        condition: service_healthy
       phpfpm:
         condition: service_started
+
+  frontend:
+    healthcheck:
+      test: "wget --no-verbose --tries=1 --spider 127.0.0.1:3000 || exit 1"
+      <<: *healthcheck-slow-start
 
   phpfpm:
     depends_on:
