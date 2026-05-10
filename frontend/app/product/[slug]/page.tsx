@@ -1,6 +1,6 @@
 import ProductDetailClient from '@/components/product/ProductDetailClient';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface ProductDetailPageProps {
   params: Promise<{

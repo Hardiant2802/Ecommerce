@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import ProductDetailClient from '@/components/product/ProductDetailClient';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 const ALLOWED_BRANDS = new Set([
   'apple',
