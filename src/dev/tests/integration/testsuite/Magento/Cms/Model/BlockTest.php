@@ -1,7 +1,7 @@
 <?php
 /**
- * Copyright 2017 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 namespace Magento\Cms\Model;
 
@@ -58,7 +58,7 @@ class BlockTest extends TestCase
      * @throws \Exception
      * @throws \Magento\Framework\Exception\NoSuchEntityException
      * @magentoDbIsolation enabled
-     * @dataProvider executeGetByIdentifierDataProvider
+     * @dataProvider testGetByIdentifierDataProvider
      */
     public function testGetByIdentifier(array $blockData)
     {
@@ -79,7 +79,7 @@ class BlockTest extends TestCase
      * @throws \Exception
      * @throws \Magento\Framework\Exception\NoSuchEntityException
      * @magentoDbIsolation enabled
-     * @dataProvider executeGetByIdentifierDataProvider
+     * @dataProvider testGetByIdentifierDataProvider
      */
     public function testUpdateTime(array $blockData)
     {
@@ -112,7 +112,7 @@ class BlockTest extends TestCase
      * Data provider for "testGetByIdentifier" and "testUpdateTime" method
      * @return array
      */
-    public static function executeGetByIdentifierDataProvider(): array
+    public static function testGetByIdentifierDataProvider(): array
     {
         return [
             [

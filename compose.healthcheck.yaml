@@ -44,12 +44,18 @@ services:
   redis:
     healthcheck:
       test: "redis-cli ping || exit 1"
-      <<: *healthcheck-slow-start
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
 
   opensearch:
     healthcheck:
       test: "curl --fail opensearch:9200/_cat/health >/dev/null || exit 1"
-      <<: *healthcheck-slow-start
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
 
   #elasticsearch:
   #  healthcheck:

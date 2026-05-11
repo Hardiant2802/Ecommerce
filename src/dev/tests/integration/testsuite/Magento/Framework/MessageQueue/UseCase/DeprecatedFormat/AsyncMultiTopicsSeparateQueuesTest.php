@@ -1,13 +1,11 @@
 <?php
 /**
- * Copyright 2016 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 namespace Magento\Framework\MessageQueue\UseCase\DeprecatedFormat;
 
-use Magento\Framework\MessageQueue\DefaultValueProvider;
 use Magento\Framework\MessageQueue\UseCase\QueueTestCaseAbstract;
-use Magento\TestFramework\Helper\Bootstrap;
 use Magento\TestModuleAsyncAmqp\Model\AsyncTestData;
 
 class AsyncMultiTopicsSeparateQueuesTest extends QueueTestCaseAbstract
@@ -36,37 +34,12 @@ class AsyncMultiTopicsSeparateQueuesTest extends QueueTestCaseAbstract
     private $topics = ['multi.topic.queue.topic.c.deprecated', 'multi.topic.queue.topic.d.deprecated'];
 
     /**
-     * @var string
-     */
-    private $connectionType;
-
-    /**
-     * @inheritdoc
-     */
-    protected function setUp(): void
-    {
-        $this->objectManager = Bootstrap::getObjectManager();
-        /** @var DefaultValueProvider $defaultValueProvider */
-        $defaultValueProvider = $this->objectManager->get(DefaultValueProvider::class);
-        $this->connectionType = $defaultValueProvider->getConnection();
-
-        if ($this->connectionType === 'amqp') {
-            parent::setUp();
-        }
-    }
-
-    /**
      * Verify that Queue Framework processes multiple asynchronous topics sent to the same queue.
      *
      * Current test is not test of Web API framework itself, it just utilizes its infrastructure to test Message Queue.
      */
     public function testAsyncMultipleTopicsPerQueue()
     {
-        if ($this->connectionType === 'stomp') {
-            $this->markTestSkipped('AMQP test skipped because STOMP connection is available.
-            This test is AMQP-specific.');
-        }
-
         $this->msgObject = $this->objectManager->create(AsyncTestData::class); // @phpstan-ignore-line
 
         foreach ($this->topics as $topic) {

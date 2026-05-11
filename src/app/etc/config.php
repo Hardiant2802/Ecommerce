@@ -60,7 +60,7 @@ return [
         'Magento_CmsUrlRewrite' => 1,
         'Magento_CmsUrlRewriteGraphQl' => 1,
         'Magento_CatalogGraphQl' => 1,
-        'Magento_TwoFactorAuth' => 0,
+        'Magento_TwoFactorAuth' => 1,
         'Magento_Payment' => 1,
         'Magento_Sales' => 1,
         'Magento_QuoteGraphQl' => 1,
@@ -323,7 +323,6 @@ return [
         'Magento_PaymentServicesPaypal' => 1,
         'Magento_InventoryInStorePickupSalesAdminUi' => 1,
         'Magento_AwsS3PageBuilder' => 1,
-        'Magento_AsynchronousOperations' => 1,
         'Magento_AsyncConfig' => 1,
         'Magento_PaymentServicesSaaSExport' => 1,
         'Magento_CompareListGraphQl' => 1,
@@ -339,12 +338,12 @@ return [
         'Magento_InventoryGraphQl' => 1,
         'Magento_ThemeGraphQl' => 1,
         'Magento_Translation' => 1,
-        'Magento_AdminAdobeImsTwoFactorAuth' => 0,
+        'Magento_AdminAdobeImsTwoFactorAuth' => 1,
         'Magento_GoogleOptimizer' => 1,
         'Magento_Ups' => 1,
-        'Magento_SampleData' => 0,
+        'Magento_SampleData' => 1,
         'Magento_CatalogUrlRewriteGraphQl' => 1,
-        'Magento_Stomp' => 1,
+        'Magento_AsynchronousOperations' => 1,
         'Magento_Usps' => 1,
         'Magento_InventoryConfigurableProductFrontendUi' => 1,
         'Magento_PaypalCaptcha' => 1,
@@ -365,46 +364,6 @@ return [
         'PayPal_BraintreeGiftCardAccount' => 1,
         'PayPal_BraintreeGiftWrapping' => 1,
         'PayPal_BraintreeGraphQl' => 1,
-        'PayPal_BraintreeReward' => 1,
-        'TMDT_Bai1' => 1,
-        'TMDT_Bai2' => 1
-    ],
-    'themes' => [
-        'frontend/Magento/blank' => [
-            'parent_id' => null,
-            'theme_path' => 'Magento/blank',
-            'theme_title' => 'Magento Blank',
-            'is_featured' => '0',
-            'area' => 'frontend',
-            'type' => '0',
-            'code' => 'Magento/blank'
-        ],
-        'adminhtml/Magento/backend' => [
-            'parent_id' => null,
-            'theme_path' => 'Magento/backend',
-            'theme_title' => 'Magento 2 backend',
-            'is_featured' => '0',
-            'area' => 'adminhtml',
-            'type' => '0',
-            'code' => 'Magento/backend'
-        ],
-        'frontend/Magento/luma' => [
-            'parent_id' => 'Magento/blank',
-            'theme_path' => 'Magento/luma',
-            'theme_title' => 'Magento Luma',
-            'is_featured' => '0',
-            'area' => 'frontend',
-            'type' => '0',
-            'code' => 'Magento/luma'
-        ],
-        'frontend/Custom/mobilecity' => [
-            'parent_id' => 'Magento/luma',
-            'theme_path' => 'Custom/mobilecity',
-            'theme_title' => 'MobileCity Theme',
-            'is_featured' => '0',
-            'area' => 'frontend',
-            'type' => '1',
-            'code' => 'Custom/mobilecity'
-        ]
+        'PayPal_BraintreeReward' => 1
     ]
 ];
