@@ -1071,6 +1071,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
+  const [forceOutOfStock, setForceOutOfStock] = useState(false);
   const [adding, setAdding] = useState(false);
   const [activeImage, setActiveImage] = useState(0);
   const [showSpecsModal, setShowSpecsModal] = useState(false);
@@ -1085,6 +1086,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   const requestedPath = requestedBrand ? `/${requestedBrand}/${slug}` : `/product/${slug}`;
 
   useEffect(() => {
+    setForceOutOfStock(false);
     setMobileCitySpecs(null);
     setMobileCityDetailSpecs(null);
     setMobileCitySourceUrl(null);
@@ -1167,7 +1169,25 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
         router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
         return;
       }
-      alert('Không thể thêm sản phẩm vào giỏ hàng');
+
+      if (message.includes('timeout') || message.includes('timed out') || message.includes('failed to fetch')) {
+        alert('Hệ thống đang bận, vui lòng thử thêm vào giỏ lại sau vài giây.');
+        return;
+      }
+
+      if (
+        message.includes('insufficient_stock') ||
+        message.includes('not enough items for sale') ||
+        message.includes('out of stock') ||
+        message.includes('is not available')
+      ) {
+        setForceOutOfStock(true);
+        alert('Sản phẩm hiện đang tạm hết hàng.');
+        return;
+      }
+
+      const rawMessage = error instanceof Error ? error.message : 'Không thể thêm sản phẩm vào giỏ hàng';
+      alert(rawMessage || 'Không thể thêm sản phẩm vào giỏ hàng');
     } finally {
       setAdding(false);
     }
@@ -1242,7 +1262,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
 
   const price = product.price_range.minimum_price.regular_price;
   const formattedPrice = formatPrice(price.value, price.currency);
-  const inStock = product.stock_status !== 'OUT_OF_STOCK';
+  const inStock = product.stock_status !== 'OUT_OF_STOCK' && !forceOutOfStock;
   const isAccessoryProduct = isAccessoryOrAudioProduct(product);
   const generatedSpecs = isAccessoryProduct ? [] : generateSpecs(product);
   const specs = isAccessoryProduct ? [] : (mobileCitySpecs && mobileCitySpecs.length > 0 ? mobileCitySpecs : generatedSpecs);

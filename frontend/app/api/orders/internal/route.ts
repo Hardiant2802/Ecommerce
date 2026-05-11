@@ -15,7 +15,7 @@ import {
   InternalPaymentMethod,
 } from '@/types/order';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface CreateOrderBody {
   paymentMethod: InternalPaymentMethod;
@@ -135,10 +135,6 @@ async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder 
     return order;
   }
 
-  if (order.magentoSyncStatus === 'success') {
-    return order;
-  }
-
   const syncResult = await syncInternalOrderToMagento(order);
   if (!syncResult.success) {
     return updateInternalOrder(order.id, {
@@ -149,8 +145,8 @@ async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder 
 
   return updateInternalOrder(order.id, {
     magentoSyncStatus: 'success',
-    magentoOrderNumber: syncResult.orderNumber,
-    magentoQuoteId: syncResult.quoteId,
+    magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
+    magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
     magentoSyncError: undefined,
   });
 }

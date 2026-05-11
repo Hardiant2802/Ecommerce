@@ -19,9 +19,13 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(() => storage.getAuthToken());
+  const [user, setUser] = useState<User | null>(() => storage.getAuthUser<User>());
+  const [loading, setLoading] = useState<boolean>(() => {
+    const cachedToken = storage.getAuthToken();
+    const cachedUser = storage.getAuthUser<User>();
+    return Boolean(cachedToken) && !cachedUser;
+  });
 
   const formatGraphqlError = (error: unknown): string => {
     if (!(error instanceof Error)) {
@@ -61,18 +65,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const bootstrapAuth = async () => {
       const storedToken = storage.getAuthToken();
+      const cachedUser = storage.getAuthUser<User>();
 
       if (!storedToken) {
+        setToken(null);
+        setUser(null);
+        storage.removeAuthUser();
         setLoading(false);
         return;
       }
 
       setToken(storedToken);
+      if (cachedUser) {
+        setUser(cachedUser);
+      }
+
       try {
         const customer = await loadCustomer(storedToken);
         setUser(customer);
+        storage.setAuthUser(customer);
       } catch {
         storage.removeAuthToken();
+        storage.removeAuthUser();
         setToken(null);
         setUser(null);
       } finally {
@@ -103,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const customer = await loadCustomer(newToken);
       setUser(customer);
+      storage.setAuthUser(customer);
     } catch (error) {
       throw new Error(formatGraphqlError(error));
     }
@@ -141,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(payload.token);
       setUser(payload.user);
       storage.setAuthToken(payload.token);
+      storage.setAuthUser(payload.user);
     } catch (error) {
       throw new Error(formatGraphqlError(error));
     }
@@ -150,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     storage.removeAuthToken();
+    storage.removeAuthUser();
   };
 
   const value: AuthContextType = {

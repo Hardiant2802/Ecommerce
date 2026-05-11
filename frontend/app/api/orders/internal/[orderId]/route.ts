@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInternalOrder } from '@/lib/services/internalOrders';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface RouteProps {
   params: Promise<{

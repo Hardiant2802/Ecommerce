@@ -6,7 +6,12 @@ export const runtime = 'nodejs';
 
 const DEFAULT_INTERNAL_MAGENTO_GRAPHQL_URL = 'https://127.0.0.1/graphql';
 const DEFAULT_PUBLIC_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
+const DEFAULT_UPSTREAM_FALLBACK_URL = 'http://app:8000/graphql';
 const CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL = process.env.MAGENTO_GRAPHQL_UPSTREAM_URL?.trim() || '';
+const CONFIGURED_UPSTREAM_FALLBACK_URLS = (process.env.MAGENTO_GRAPHQL_UPSTREAM_FALLBACK_URLS || '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
 const FRONTEND_HOSTS = new Set([
   'ahphonestore.id.vn',
   'www.ahphonestore.id.vn',
@@ -14,6 +19,7 @@ const FRONTEND_HOSTS = new Set([
   'main.e-commerce-75g.pages.dev',
 ]);
 const GRAPHQL_PROXY_CACHE_TTL_MS = 5_000;
+const DEFAULT_GRAPHQL_PROXY_TIMEOUT_MS = 12_000;
 
 type CachedGraphqlResponse = {
   expiresAt: number;
@@ -107,6 +113,71 @@ function resolveMagentoGraphqlUrl(request: NextRequest): string {
   return candidateUrl;
 }
 
+function getGraphqlProxyTimeoutMs(): number {
+  const rawTimeout = process.env.GRAPHQL_PROXY_TIMEOUT_MS?.trim();
+  if (!rawTimeout) {
+    return DEFAULT_GRAPHQL_PROXY_TIMEOUT_MS;
+  }
+
+  const parsed = Number(rawTimeout);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_GRAPHQL_PROXY_TIMEOUT_MS;
+  }
+
+  return parsed;
+}
+
+function appendUniqueUrl(target: string[], url: string): void {
+  if (!url) {
+    return;
+  }
+
+  try {
+    const normalized = new URL(url).toString();
+    if (!target.includes(normalized)) {
+      target.push(normalized);
+    }
+  } catch {
+    // Ignore malformed URL entries.
+  }
+}
+
+function resolveMagentoGraphqlUrls(request: NextRequest): string[] {
+  const urls: string[] = [];
+  const primary = resolveMagentoGraphqlUrl(request);
+  appendUniqueUrl(urls, primary);
+
+  const frontendHost = request.nextUrl.hostname.toLowerCase();
+  const internalUpstream = buildInternalUpstream(frontendHost);
+  appendUniqueUrl(urls, internalUpstream);
+  appendUniqueUrl(urls, DEFAULT_UPSTREAM_FALLBACK_URL);
+
+  for (const fallbackUrl of CONFIGURED_UPSTREAM_FALLBACK_URLS) {
+    appendUniqueUrl(urls, fallbackUrl);
+  }
+
+  const publicCandidate = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL?.trim() || DEFAULT_PUBLIC_MAGENTO_GRAPHQL_URL;
+  appendUniqueUrl(urls, publicCandidate);
+
+  return urls;
+}
+
+function isTransientUpstreamError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('abort') ||
+    message.includes('fetch failed') ||
+    message.includes('econnreset') ||
+    message.includes('econnrefused')
+  );
+}
+
+function shouldRetryWithAnotherUpstream(statusCode: number): boolean {
+  return statusCode === 502 || statusCode === 503 || statusCode === 504;
+}
+
 function parseUpstreamPayload(responseText: string, responseStatus: number): { payload: unknown; isJson: boolean } {
   if (!responseText) {
     return { payload: {}, isJson: true };
@@ -130,8 +201,11 @@ function parseUpstreamPayload(responseText: string, responseStatus: number): { p
 
 export async function POST(request: NextRequest) {
   try {
-    const magentoGraphqlUrl = resolveMagentoGraphqlUrl(request);
+    const magentoGraphqlUrls = resolveMagentoGraphqlUrls(request);
+    const primaryMagentoGraphqlUrl =
+      magentoGraphqlUrls[0] || resolveMagentoGraphqlUrl(request);
     const body = await request.json();
+    const timeoutMs = getGraphqlProxyTimeoutMs();
     
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -145,7 +219,7 @@ export async function POST(request: NextRequest) {
     }
 
     const canCache = shouldCacheRequest(body, !!authHeader);
-    const cacheKey = canCache ? createProxyCacheKey(magentoGraphqlUrl, body) : '';
+    const cacheKey = canCache ? createProxyCacheKey(primaryMagentoGraphqlUrl, body) : '';
 
     if (canCache) {
       const cached = getCachedProxyResponse(cacheKey);
@@ -163,37 +237,62 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const response = await fetch(magentoGraphqlUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(25_000),
-    });
+    let lastError: unknown = null;
 
-    const responseText = await response.text();
-    const { payload, isJson } = parseUpstreamPayload(responseText, response.status);
+    for (let index = 0; index < magentoGraphqlUrls.length; index += 1) {
+      const upstreamUrl = magentoGraphqlUrls[index];
+      const isLastUpstream = index === magentoGraphqlUrls.length - 1;
 
-    if (canCache && response.ok && isJson) {
-      proxyCache.set(cacheKey, {
-        expiresAt: Date.now() + GRAPHQL_PROXY_CACHE_TTL_MS,
-        status: response.status,
-        payload,
-      });
+      try {
+        const response = await fetch(upstreamUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+
+        const responseText = await response.text();
+        const { payload, isJson } = parseUpstreamPayload(responseText, response.status);
+
+        if (!isLastUpstream && shouldRetryWithAnotherUpstream(response.status)) {
+          lastError = new Error(`Upstream ${upstreamUrl} returned HTTP ${response.status}`);
+          continue;
+        }
+
+        if (canCache && response.ok && isJson) {
+          proxyCache.set(cacheKey, {
+            expiresAt: Date.now() + GRAPHQL_PROXY_CACHE_TTL_MS,
+            status: response.status,
+            payload,
+          });
+        }
+
+        return NextResponse.json(payload, {
+          status: response.status,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Cache-Control': canCache
+              ? 'public, max-age=5, s-maxage=5, stale-while-revalidate=10'
+              : 'no-store',
+            'X-GraphQL-Proxy-Cache': canCache ? 'MISS' : 'BYPASS',
+            'X-GraphQL-Upstream-Format': isJson ? 'JSON' : 'TEXT',
+            'X-GraphQL-Upstream': upstreamUrl,
+          }
+        });
+      } catch (error) {
+        lastError = error;
+
+        if (!isLastUpstream && isTransientUpstreamError(error)) {
+          continue;
+        }
+
+        throw error;
+      }
     }
 
-    return NextResponse.json(payload, {
-      status: response.status,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Cache-Control': canCache
-          ? 'public, max-age=5, s-maxage=5, stale-while-revalidate=10'
-          : 'no-store',
-        'X-GraphQL-Proxy-Cache': canCache ? 'MISS' : 'BYPASS',
-        'X-GraphQL-Upstream-Format': isJson ? 'JSON' : 'TEXT',
-      }
-    });
+    throw (lastError ?? new Error('No GraphQL upstream available'));
   } catch (error) {
     console.error('GraphQL Proxy Error:', error);
     return NextResponse.json(

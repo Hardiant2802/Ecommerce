@@ -10,6 +10,7 @@ import Button from '@/components/ui/Button';
 import type { InternalOrder } from '@/types/order';
 
 const CART_SYNC_STORAGE_KEY = 'ahphone_checkout_pending_cart_sync';
+const PURCHASED_ORDERS_CACHE_KEY_PREFIX = 'ahphone_purchased_orders_v1';
 
 interface PendingCartSync {
   orderId: string;
@@ -17,6 +18,8 @@ interface PendingCartSync {
   itemUid?: string;
   sku: string;
   paidUnits: number;
+  checkoutMode?: 'single' | 'total';
+  expectedQuantityBeforePay?: number;
   savedAt: number;
 }
 
@@ -27,6 +30,54 @@ function getSessionStorageSafe(): Storage | null {
   } catch {
     return null;
   }
+}
+
+function getLocalStorageSafe(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function buildPurchasedOrdersCacheKey(customerEmail: string): string {
+  return `${PURCHASED_ORDERS_CACHE_KEY_PREFIX}:${customerEmail.trim().toLowerCase()}`;
+}
+
+function readPurchasedOrdersCache(customerEmail: string): InternalOrder[] {
+  const storage = getLocalStorageSafe();
+  if (!storage) return [];
+
+  const normalizedEmail = customerEmail.trim().toLowerCase();
+  if (!normalizedEmail) return [];
+
+  const raw = storage.getItem(buildPurchasedOrdersCacheKey(normalizedEmail));
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as { orders?: unknown };
+    if (!Array.isArray(parsed.orders)) return [];
+    return parsed.orders as InternalOrder[];
+  } catch {
+    return [];
+  }
+}
+
+function writePurchasedOrdersCache(customerEmail: string, orders: InternalOrder[]): void {
+  const storage = getLocalStorageSafe();
+  if (!storage) return;
+
+  const normalizedEmail = customerEmail.trim().toLowerCase();
+  if (!normalizedEmail) return;
+
+  storage.setItem(
+    buildPurchasedOrdersCacheKey(normalizedEmail),
+    JSON.stringify({
+      savedAt: Date.now(),
+      orders,
+    }),
+  );
 }
 
 function readPendingCartSync(): PendingCartSync | null {
@@ -41,6 +92,8 @@ function readPendingCartSync(): PendingCartSync | null {
     const orderId = String(parsed.orderId || '').trim();
     const sku = String(parsed.sku || '').trim();
     const paidUnits = Math.max(1, Math.floor(Number(parsed.paidUnits || 1)));
+    const checkoutMode = parsed.checkoutMode === 'total' ? 'total' : 'single';
+    const expectedQuantityBeforePay = Math.max(0, Math.floor(Number(parsed.expectedQuantityBeforePay || 0)));
 
     if (!orderId || !sku) return null;
 
@@ -50,6 +103,8 @@ function readPendingCartSync(): PendingCartSync | null {
       itemUid: String(parsed.itemUid || '').trim() || undefined,
       sku,
       paidUnits,
+      checkoutMode,
+      expectedQuantityBeforePay,
       savedAt: Number(parsed.savedAt || 0),
     };
   } catch {
@@ -85,7 +140,7 @@ function shouldHidePurchasedOrder(order: InternalOrder): boolean {
 
 export default function CartPage() {
   const { isAuthenticated, loading: authLoading, user } = useAuth();
-  const { cart, updateQuantity, removeItem, addToCart, refreshCart, loading: cartLoading } = useCart();
+  const { cart, updateQuantity, removeItem, refreshCart, loading: cartLoading } = useCart();
   const router = useRouter();
   const [updatingItemIds, setUpdatingItemIds] = useState<Record<string, boolean>>({});
   const [repurchasingSku, setRepurchasingSku] = useState<string | null>(null);
@@ -93,11 +148,66 @@ export default function CartPage() {
   const [purchasedOrders, setPurchasedOrders] = useState<InternalOrder[]>([]);
   const [loadingPurchased, setLoadingPurchased] = useState(false);
 
+  const safeCartItems = useMemo(() => {
+    const items = Array.isArray(cart?.items) ? cart.items : [];
+    return items.filter((item): item is (typeof items)[number] => {
+      return Boolean(item && item.id && item.product && item.product.sku && item.product.name && item.prices?.price);
+    });
+  }, [cart?.items]);
+
+  const purchasedProducts = useMemo(() => {
+    const map = new Map<string, {
+      sku: string;
+      name: string;
+      totalQuantity: number;
+      lastPaidAt: number;
+    }>();
+
+    for (const order of purchasedOrders) {
+      const paidAt = order.paidAt || order.updatedAt || order.createdAt || 0;
+      const items = Array.isArray(order.items) ? order.items : [];
+      for (const rawItem of items) {
+        if (!rawItem || typeof rawItem !== 'object') continue;
+
+        const sku = String((rawItem as { sku?: string }).sku || '').trim();
+        if (!sku) continue;
+
+        const name = String((rawItem as { name?: string }).name || sku);
+        const quantity = Math.max(0, Math.floor(Number((rawItem as { quantity?: number }).quantity || 0)));
+        const key = sku;
+        const previous = map.get(key);
+
+        if (!previous) {
+          map.set(key, {
+            sku,
+            name,
+            totalQuantity: quantity,
+            lastPaidAt: paidAt,
+          });
+          continue;
+        }
+
+        map.set(key, {
+          ...previous,
+          totalQuantity: previous.totalQuantity + quantity,
+          lastPaidAt: Math.max(previous.lastPaidAt, paidAt),
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.lastPaidAt - a.lastPaidAt);
+  }, [purchasedOrders]);
+
   useEffect(() => {
     const customerEmail = user?.email?.trim();
     if (authLoading || !isAuthenticated || !customerEmail) {
       setPurchasedOrders([]);
       return;
+    }
+
+    const cachedOrders = readPurchasedOrdersCache(customerEmail);
+    if (cachedOrders.length > 0) {
+      setPurchasedOrders(cachedOrders);
     }
 
     let cancelled = false;
@@ -122,12 +232,17 @@ export default function CartPage() {
         }).filter((order) => !shouldHidePurchasedOrder(order));
 
         if (!cancelled) {
-          setPurchasedOrders(normalizedOrders);
+          if (normalizedOrders.length > 0) {
+            setPurchasedOrders(normalizedOrders);
+            writePurchasedOrdersCache(customerEmail, normalizedOrders);
+          } else {
+            setPurchasedOrders(cachedOrders);
+          }
         }
       } catch (error) {
         console.error('Không thể tải sản phẩm đã mua:', error);
         if (!cancelled) {
-          setPurchasedOrders([]);
+          setPurchasedOrders(cachedOrders);
         }
       } finally {
         if (!cancelled) {
@@ -177,7 +292,23 @@ export default function CartPage() {
         return;
       }
 
-      const nextQuantity = Math.max(0, Math.floor(matchedItem.quantity) - pending.paidUnits);
+      const currentQuantity = Math.max(0, Math.floor(matchedItem.quantity));
+      const normalizedPaidUnits = pending.checkoutMode === 'single'
+        ? 1
+        : Math.max(1, Math.floor(pending.paidUnits));
+
+      // Guard against double-sync or stale cart refresh applying one more deduction than intended.
+      const expectedBefore = Math.max(0, Math.floor(pending.expectedQuantityBeforePay || 0));
+      if (expectedBefore > 0) {
+        const expectedRemaining = Math.max(0, expectedBefore - normalizedPaidUnits);
+        if (currentQuantity <= expectedRemaining) {
+          clearPendingCartSync();
+          await refreshCart();
+          return;
+        }
+      }
+
+      const nextQuantity = Math.max(0, currentQuantity - normalizedPaidUnits);
       if (nextQuantity <= 0) {
         await removeItem(matchedItem.id);
       } else {
@@ -210,18 +341,10 @@ export default function CartPage() {
     router.push(`/checkout?itemId=${item}&payment=banking&mode=single&buyAgain=1`);
   };
 
-  const handleRepurchase = async (sku: string) => {
+  const handleRepurchase = (sku: string) => {
     setRepurchaseError(null);
     setRepurchasingSku(sku);
-    try {
-      await addToCart(sku, 1);
-      router.push(`/checkout?sku=${encodeURIComponent(sku)}&payment=banking&buyAgain=1`);
-    } catch (error) {
-      console.error('Không thể mua lại sản phẩm:', error);
-      setRepurchaseError('Không thể thêm sản phẩm vào giỏ để mua lại. Vui lòng thử lại.');
-    } finally {
-      setRepurchasingSku(null);
-    }
+    router.push(`/checkout?sku=${encodeURIComponent(sku)}&payment=banking&mode=single&buyAgain=1`);
   };
 
   if (authLoading || !isAuthenticated) {
@@ -236,18 +359,9 @@ export default function CartPage() {
   }
 
   const handleUpdateQuantity = async (id: string, quantity: number) => {
-    setUpdatingItemIds((prev) => ({ ...prev, [id]: true }));
-    try {
-      await updateQuantity(id, quantity);
-    } catch (error) {
+    void updateQuantity(id, quantity).catch((error) => {
       console.error('Không thể cập nhật số lượng:', error);
-    } finally {
-      setUpdatingItemIds((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    }
+    });
   };
 
   const handleRemove = async (id: string) => {
@@ -287,50 +401,13 @@ export default function CartPage() {
     );
   }
 
-  const isEmpty = !cart || !cart.items || cart.items.length === 0;
-  const originalTotal = cart?.items?.reduce((sum, item) => {
+  const originalTotal = safeCartItems.reduce((sum, item) => {
     const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
     return sum + unitPrice * item.quantity;
-  }, 0) ?? 0;
-  const originalCurrency = cart?.items?.[0]?.product.price_range?.minimum_price?.regular_price?.currency
-    ?? cart?.items?.[0]?.prices?.price?.currency
+  }, 0);
+  const originalCurrency = safeCartItems[0]?.product.price_range?.minimum_price?.regular_price?.currency
+    ?? safeCartItems[0]?.prices?.price?.currency
     ?? 'VND';
-
-  const purchasedProducts = useMemo(() => {
-    const map = new Map<string, {
-      sku: string;
-      name: string;
-      totalQuantity: number;
-      lastPaidAt: number;
-    }>();
-
-    for (const order of purchasedOrders) {
-      const paidAt = order.paidAt || order.updatedAt || order.createdAt || 0;
-      const items = Array.isArray(order.items) ? order.items : [];
-      for (const item of items) {
-        const key = item.sku;
-        const previous = map.get(key);
-
-        if (!previous) {
-          map.set(key, {
-            sku: item.sku,
-            name: item.name,
-            totalQuantity: Math.max(0, Math.floor(item.quantity || 0)),
-            lastPaidAt: paidAt,
-          });
-          continue;
-        }
-
-        map.set(key, {
-          ...previous,
-          totalQuantity: previous.totalQuantity + Math.max(0, Math.floor(item.quantity || 0)),
-          lastPaidAt: Math.max(previous.lastPaidAt, paidAt),
-        });
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => b.lastPaidAt - a.lastPaidAt);
-  }, [purchasedOrders]);
 
   const purchasedSection = (
     <div className="mt-10">
@@ -379,6 +456,8 @@ export default function CartPage() {
     </div>
   );
 
+  const isEmpty = safeCartItems.length === 0;
+
   if (isEmpty) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
@@ -421,7 +500,7 @@ export default function CartPage() {
           {/* Cart Items */}
           <div className="md:col-span-2">
             <div className="bg-white rounded-lg shadow-sm p-6">
-              {cart.items.map((item) => {
+              {safeCartItems.map((item) => {
                 const rowKey = item.uid || item.id || item.product.sku;
                 return (
                   <CartItem
@@ -443,7 +522,7 @@ export default function CartPage() {
               subtotal={originalTotal}
               total={originalTotal}
               currency={originalCurrency}
-              itemCount={cart.total_quantity}
+              itemCount={safeCartItems.reduce((sum, item) => sum + Math.max(0, Math.floor(item.quantity)), 0)}
             />
           </div>
         </div>

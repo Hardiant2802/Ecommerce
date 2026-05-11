@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
 import { useEffect, useRef, useState } from 'react';
-import { Gamepad2 } from 'lucide-react';
+import { Cable, Gamepad2, Headphones } from 'lucide-react';
 import {
   SiApple,
   SiSamsung,
@@ -25,10 +25,12 @@ const BRANDS = [
   { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/vivo', size: 40 },
   { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/asus', size: 40 },
   { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/red-magic', size: 24 },
+  { name: 'Tai nghe', slug: 'tai-nghe', icon: Headphones, href: '/tai-nghe', size: 22 },
+  { name: 'Phụ kiện', slug: 'phu-kien', icon: Cable, href: '/phu-kien', size: 22 },
 ];
 
 export default function MobileCityHeader() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, loading: authLoading } = useAuth();
   const { itemCount } = useCart();
   const router = useRouter();
   const pathname = usePathname();
@@ -133,7 +135,12 @@ export default function MobileCityHeader() {
 
             {/* Tài khoản & Giỏ hàng */}
             <div className="order-2 sm:order-3 flex items-center gap-1 sm:gap-3 flex-shrink-0">
-              {isAuthenticated && user ? (
+              {authLoading ? (
+                <div className="flex items-center gap-1 sm:gap-3" aria-label="Đang tải tài khoản">
+                  <div className="h-11 w-20 sm:w-24 rounded-lg bg-white/70 animate-pulse" />
+                  <div className="h-11 w-20 sm:w-24 rounded-lg bg-white/70 animate-pulse" />
+                </div>
+              ) : isAuthenticated && user ? (
                 <div className="relative" ref={userMenuRef}>
                   <button
                     type="button"

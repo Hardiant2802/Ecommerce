@@ -12,6 +12,7 @@ export interface SePayMatchedTransaction {
 }
 
 const DEFAULT_TRANSACTIONS_API_URL = 'https://my.sepay.vn/userapi/transactions/list';
+const DEFAULT_SEPAY_FETCH_TIMEOUT_MS = 6000;
 
 function normalizeText(value?: string): string {
   return (value || '').trim();
@@ -246,15 +247,28 @@ function parseTransactions(payload: unknown): SePayMatchedTransaction[] {
 }
 
 async function fetchTransactionsWithHeader(url: string, authHeaders: Record<string, string>): Promise<Response> {
-  return fetch(url, {
-    method: 'GET',
-    headers: {
-      ...authHeaders,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    cache: 'no-store',
-  });
+  const configuredTimeout = Number(process.env.SEPAY_API_TIMEOUT_MS || DEFAULT_SEPAY_FETCH_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configuredTimeout)
+    ? Math.max(1000, Math.min(15000, Math.floor(configuredTimeout)))
+    : DEFAULT_SEPAY_FETCH_TIMEOUT_MS;
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      method: 'GET',
+      headers: {
+        ...authHeaders,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      signal: abortController.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function buildEndpointCandidates(endpoint: string): string[] {
@@ -268,21 +282,13 @@ function buildEndpointCandidates(endpoint: string): string[] {
     candidates.push(normalized);
   };
 
-  push(endpoint);
-
   try {
     const base = new URL(endpoint);
     const parameterSets: Array<Array<[string, string]>> = [
+      [['page', '1'], ['limit', '100']],
+      [['page', '1'], ['per_page', '100']],
       [['limit', '100']],
       [['limit', '200']],
-      [['pageSize', '100']],
-      [['per_page', '100']],
-      [['perPage', '100']],
-      [['size', '100']],
-      [['page', '1'], ['limit', '100']],
-      [['page', '1'], ['pageSize', '100']],
-      [['page', '1'], ['per_page', '100']],
-      [['page', '1'], ['perPage', '100']],
     ];
 
     for (const params of parameterSets) {
@@ -292,8 +298,12 @@ function buildEndpointCandidates(endpoint: string): string[] {
       }
       push(next.toString());
     }
+
+    // Fallback to the raw endpoint if parameterized variants fail.
+    push(base.toString());
   } catch {
     // If endpoint is not a valid absolute URL, keep the original only.
+    push(endpoint);
   }
 
   return candidates;
@@ -325,9 +335,6 @@ async function fetchSePayTransactions(): Promise<{ transactions: SePayMatchedTra
   let lastError = '';
 
   for (const authHeaders of authorizationCandidates) {
-    let bestTransactions: SePayMatchedTransaction[] = [];
-    let sawOkResponse = false;
-
     for (const candidateUrl of endpointCandidates) {
       try {
         const response = await fetchTransactionsWithHeader(candidateUrl, authHeaders);
@@ -337,23 +344,23 @@ async function fetchSePayTransactions(): Promise<{ transactions: SePayMatchedTra
               ? `SePay API responded ${response.status} (check SEPAY_API_TOKEN from API Access)`
               : `SePay API responded ${response.status}`;
           if (response.status === 401 || response.status === 403) {
-            bestTransactions = [];
             break;
           }
           continue;
         }
 
-        sawOkResponse = true;
         const payload = await response.json();
         const transactions = parseTransactions(payload);
-        bestTransactions = mergeTransactions(bestTransactions, transactions);
+        if (transactions.length === 0) {
+          continue;
+        }
+
+        return {
+          transactions,
+        };
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'Cannot fetch SePay transactions';
       }
-    }
-
-    if (bestTransactions.length > 0 || sawOkResponse) {
-      return { transactions: bestTransactions, error: sawOkResponse ? undefined : lastError };
     }
   }
 

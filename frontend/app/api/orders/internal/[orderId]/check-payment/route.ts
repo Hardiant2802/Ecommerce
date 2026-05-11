@@ -8,7 +8,7 @@ import { syncInternalOrderToMagento } from '@/lib/services/magentoSync';
 import { findMatchingSePayTransaction } from '@/lib/services/sepayClient';
 import type { InternalOrder } from '@/types/order';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface RouteProps {
   params: Promise<{
@@ -20,7 +20,7 @@ interface PerformCheckOptions {
   verifySePayHistory?: boolean;
 }
 
-const DEFAULT_CHECK_COOLDOWN_MS = 4000;
+const DEFAULT_CHECK_COOLDOWN_MS = 600;
 
 function getCheckCooldownMs(): number {
   const raw = Number(process.env.SEPAY_CHECK_COOLDOWN_MS || DEFAULT_CHECK_COOLDOWN_MS);
@@ -28,29 +28,35 @@ function getCheckCooldownMs(): number {
   return raw;
 }
 
-async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder | null> {
+function triggerMagentoSync(order: InternalOrder): void {
   if (order.status !== 'paid') {
-    return order;
+    return;
   }
 
   if (order.magentoSyncStatus === 'success') {
-    return order;
+    return;
   }
 
-  const syncResult = await syncInternalOrderToMagento(order);
-  if (!syncResult.success) {
-    return updateInternalOrder(order.id, {
-      magentoSyncStatus: 'failed',
-      magentoSyncError: syncResult.error || 'Magento sync failed',
+  void syncInternalOrderToMagento(order)
+    .then(async (syncResult) => {
+      if (!syncResult.success) {
+        await updateInternalOrder(order.id, {
+          magentoSyncStatus: 'failed',
+          magentoSyncError: syncResult.error || 'Magento sync failed',
+        });
+        return;
+      }
+
+      await updateInternalOrder(order.id, {
+        magentoSyncStatus: 'success',
+        magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
+        magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
+        magentoSyncError: undefined,
+      });
+    })
+    .catch((error) => {
+      console.error('Background Magento sync failed:', error);
     });
-  }
-
-  return updateInternalOrder(order.id, {
-    magentoSyncStatus: 'success',
-    magentoOrderNumber: syncResult.orderNumber,
-    magentoQuoteId: syncResult.quoteId,
-    magentoSyncError: undefined,
-  });
 }
 
 function isDuplicateTransactionReason(reason?: string): boolean {
@@ -123,7 +129,7 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
         matched && (!expectedTransactionId || matched.id === expectedTransactionId)
       );
 
-      const synced = await ensureMagentoSynced(order);
+      triggerMagentoSync(order);
       return NextResponse.json({
         ok: true,
         found: true,
@@ -151,16 +157,16 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
           subAccount: transaction.subAccount,
           transactionDate: transaction.transactionDate,
         })),
-        order: synced || order,
+        order,
       });
     }
 
-    const synced = await ensureMagentoSynced(order);
+    triggerMagentoSync(order);
     return NextResponse.json({
       ok: true,
       found: true,
       source: 'already_paid',
-      order: synced || order,
+      order,
     });
   }
 
@@ -212,7 +218,7 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
   const effectiveOrder = paymentResult.order || order;
 
   if (paymentResult.reason === 'ALREADY_PAID' || isDuplicateTransactionReason(paymentResult.reason)) {
-    const synced = await ensureMagentoSynced(effectiveOrder);
+    triggerMagentoSync(effectiveOrder);
     return NextResponse.json({
       ok: true,
       found: true,
@@ -224,11 +230,11 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
         content: matched.content,
         transactionDate: matched.transactionDate,
       },
-      order: synced || effectiveOrder,
+      order: effectiveOrder,
     });
   }
 
-  const synced = await ensureMagentoSynced(effectiveOrder);
+  triggerMagentoSync(effectiveOrder);
 
   return NextResponse.json({
     ok: true,
@@ -240,7 +246,7 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
       content: matched.content,
       transactionDate: matched.transactionDate,
     },
-    order: synced || effectiveOrder,
+    order: effectiveOrder,
   });
 }
 

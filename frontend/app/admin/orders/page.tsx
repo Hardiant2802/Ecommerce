@@ -31,7 +31,6 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
 
   const fetchOrders = async () => {
     if (!adminKey) {
@@ -72,32 +71,6 @@ export default function AdminOrdersPage() {
   }, [adminKey]);
 
   const paidOrders = useMemo(() => orders.filter((order) => order.status === 'paid').length, [orders]);
-
-  const handleSync = async (orderId: string) => {
-    try {
-      setSyncingOrderId(orderId);
-      const response = await fetch(
-        `/api/orders/internal/${encodeURIComponent(orderId)}/sync-magento?adminKey=${encodeURIComponent(adminKey)}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error || 'Sync failed');
-      }
-
-      await fetchOrders();
-    } catch (syncError) {
-      setError(syncError instanceof Error ? syncError.message : 'Sync failed');
-    } finally {
-      setSyncingOrderId(null);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -143,9 +116,7 @@ export default function AdminOrdersPage() {
                   <th className="text-left px-4 py-3">Payment</th>
                   <th className="text-left px-4 py-3">Amount</th>
                   <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-left px-4 py-3">Magento Sync</th>
                   <th className="text-left px-4 py-3">Updated</th>
-                  <th className="text-left px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,31 +144,12 @@ export default function AdminOrdersPage() {
                         {order.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="text-gray-900">{order.magentoSyncStatus}</div>
-                      {order.magentoOrderNumber && (
-                        <div className="text-xs text-green-700">#{order.magentoOrderNumber}</div>
-                      )}
-                      {order.magentoSyncError && (
-                        <div className="text-xs text-red-600 max-w-[320px]">{order.magentoSyncError}</div>
-                      )}
-                    </td>
                     <td className="px-4 py-3 text-gray-500">{formatDateTime(order.updatedAt)}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        disabled={syncingOrderId === order.id || order.status !== 'paid'}
-                        onClick={() => void handleSync(order.id)}
-                        className="px-3 py-1.5 rounded border border-gray-300 text-xs font-semibold disabled:opacity-50 hover:bg-gray-50"
-                      >
-                        {syncingOrderId === order.id ? 'Dang sync...' : 'Sync Magento'}
-                      </button>
-                    </td>
                   </tr>
                 ))}
                 {orders.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                       Chua co don nao.
                     </td>
                   </tr>

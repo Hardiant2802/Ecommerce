@@ -9,7 +9,7 @@ import {
 import { syncInternalOrderToMagento } from '@/lib/services/magentoSync';
 import type { InternalOrder } from '@/types/order';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface SePayPayload {
   // Official SePay webhook fields (https://docs.sepay.vn/webhooks)
@@ -52,7 +52,9 @@ function isApiAccessOnlyMode(): boolean {
     .trim()
     .toLowerCase();
 
-  return mode === 'api_access' || mode === 'api_access_only' || mode === 'pull' || mode === 'poll';
+  // Keep webhook enabled for hybrid modes (e.g. api_access) to get faster confirmations,
+  // while still allowing poll fallback when webhook is delayed or unavailable.
+  return mode === 'api_access_only' || mode === 'pull_only' || mode === 'poll_only';
 }
 
 function normalizeApiKey(raw: string | null): string {
@@ -238,29 +240,35 @@ function isDuplicateTransactionReason(reason?: string): boolean {
   return reason === 'DUPLICATE_TRANSACTION' || reason.startsWith('TRANSACTION_ALREADY_USED:');
 }
 
-async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder | null> {
+function triggerMagentoSync(order: InternalOrder): void {
   if (order.status !== 'paid') {
-    return order;
+    return;
   }
 
   if (order.magentoSyncStatus === 'success') {
-    return order;
+    return;
   }
 
-  const syncResult = await syncInternalOrderToMagento(order);
-  if (syncResult.success) {
-    return updateInternalOrder(order.id, {
-      magentoSyncStatus: 'success',
-      magentoOrderNumber: syncResult.orderNumber,
-      magentoQuoteId: syncResult.quoteId,
-      magentoSyncError: undefined,
+  void syncInternalOrderToMagento(order)
+    .then(async (syncResult) => {
+      if (syncResult.success) {
+        await updateInternalOrder(order.id, {
+          magentoSyncStatus: 'success',
+          magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
+          magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
+          magentoSyncError: undefined,
+        });
+        return;
+      }
+
+      await updateInternalOrder(order.id, {
+        magentoSyncStatus: 'failed',
+        magentoSyncError: syncResult.error || 'Magento sync failed',
+      });
+    })
+    .catch((error) => {
+      console.error('Background Magento sync failed:', error);
     });
-  }
-
-  return updateInternalOrder(order.id, {
-    magentoSyncStatus: 'failed',
-    magentoSyncError: syncResult.error || 'Magento sync failed',
-  });
 }
 
 export async function POST(request: NextRequest) {
@@ -360,8 +368,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (result.reason === 'ALREADY_PAID') {
-      const maybeSynced = await ensureMagentoSynced(result.order);
-      const effectiveOrder = maybeSynced || result.order;
+      triggerMagentoSync(result.order);
+      const effectiveOrder = result.order;
 
       return NextResponse.json({
         success: true,
@@ -404,24 +412,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    let syncedOrder: typeof result.order | null = result.order;
-
-    if (syncedOrder && syncedOrder.status === 'paid' && syncedOrder.magentoSyncStatus !== 'success') {
-      syncedOrder = await ensureMagentoSynced(syncedOrder);
-    }
-
-    if (!syncedOrder && result.order) {
-      syncedOrder = await getInternalOrder(result.order.id);
+    if (result.order.status === 'paid') {
+      triggerMagentoSync(result.order);
     }
 
     return NextResponse.json({
       success: true,
       ok: true,
       processed: true,
-      orderId: syncedOrder?.id || result.order.id,
-      status: syncedOrder?.status || result.order.status,
-      magentoSyncStatus: syncedOrder?.magentoSyncStatus || result.order.magentoSyncStatus,
-      paymentStatusMessage: syncedOrder?.paymentStatusMessage || result.order.paymentStatusMessage,
+      orderId: result.order.id,
+      status: result.order.status,
+      magentoSyncStatus: result.order.magentoSyncStatus,
+      paymentStatusMessage: result.order.paymentStatusMessage,
     });
   } catch (error) {
     console.error('SePay webhook failed:', error);

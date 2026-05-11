@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import { formatPrice } from '@/lib/utils/formatters';
 
@@ -55,12 +56,36 @@ interface CartItemProps {
 export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout, updating }: CartItemProps) {
   const originalUnitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
   const originalCurrency = item.product.price_range?.minimum_price?.regular_price?.currency ?? item.prices.price.currency;
-  const originalRowTotal = originalUnitPrice * item.quantity;
+  const normalizedQuantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+  const [displayQuantity, setDisplayQuantity] = useState<number>(normalizedQuantity);
+  const originalRowTotal = originalUnitPrice * displayQuantity;
   const imageUrl = getPrimaryProductImageUrl({
     image: item.product.image || item.product.thumbnail,
     media_gallery: item.product.media_gallery,
     updated_at: item.product.updated_at,
   });
+
+  useEffect(() => {
+    setDisplayQuantity(normalizedQuantity);
+  }, [item.id, normalizedQuantity]);
+
+  const handleDecrease = () => {
+    setDisplayQuantity((current) => {
+      const next = Math.max(1, current - 1);
+      if (next !== current) {
+        onUpdateQuantity(item.id, next);
+      }
+      return next;
+    });
+  };
+
+  const handleIncrease = () => {
+    setDisplayQuantity((current) => {
+      const next = current + 1;
+      onUpdateQuantity(item.id, next);
+      return next;
+    });
+  };
 
   return (
     <div className="flex gap-4 py-4 border-b">
@@ -87,16 +112,15 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center border border-gray-300 rounded-md">
             <button
-              onClick={() => onUpdateQuantity(item.id, Math.max(1, item.quantity - 1))}
-              disabled={updating || item.quantity <= 1}
+              onClick={handleDecrease}
+              disabled={displayQuantity <= 1}
               className="px-3 py-1 hover:bg-gray-50 disabled:opacity-50"
             >
               -
             </button>
-            <span className="px-4 py-1 border-x">{item.quantity}</span>
+            <span className="px-4 py-1 border-x">{displayQuantity}</span>
             <button
-              onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
-              disabled={updating}
+              onClick={handleIncrease}
               className="px-3 py-1 hover:bg-gray-50 disabled:opacity-50"
             >
               +

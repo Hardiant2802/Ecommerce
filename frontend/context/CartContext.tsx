@@ -32,9 +32,11 @@ function isCartNotFoundError(error: unknown): boolean {
   return (
     msg.includes('no such entity') ||
     msg.includes('could not find a cart') ||
+    msg.includes('could not find cart') ||
     msg.includes('cart_not_found') ||
     msg.includes('the cart isn') ||
-    msg.includes("wasn't found")
+    msg.includes("wasn't found") ||
+    msg.includes('cart id')
   );
 }
 
@@ -44,7 +46,9 @@ function isCartAccessDeniedError(error: unknown): boolean {
     msg.includes('cannot perform operations on cart') ||
     msg.includes('current user cannot') ||
     msg.includes('not authorized') ||
-    msg.includes('permission')
+    msg.includes('permission') ||
+    msg.includes('cannot assign customer to the given cart') ||
+    msg.includes('cart does not belong to this customer')
   );
 }
 
@@ -55,6 +59,21 @@ function isAuthTokenInvalidError(error: unknown): boolean {
     msg.includes('unauthorized') ||
     msg.includes("current customer isn't authorized") ||
     msg.includes('customer token')
+  );
+}
+
+function isTransientCartError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('abort') ||
+    msg.includes('network') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('503') ||
+    msg.includes('504')
   );
 }
 
@@ -122,6 +141,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [cartId, setCartId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const updateLocksRef = useRef<Set<number>>(new Set());
+  const queuedQuantitiesRef = useRef<Map<number, number>>(new Map());
 
   // Keep cart in sync with auth state changes (login/logout) without requiring page reload.
   useEffect(() => {
@@ -178,6 +198,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const data = await graphqlClient<{ customerCart: Cart }>({
         query: GET_CUSTOMER_CART,
         token,
+        cache: 'no-store',
       });
       const customerCart = data.customerCart;
       setCart(customerCart);
@@ -229,6 +250,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const authToken = storage.getAuthToken();
     let activeCartId = cart?.id || cartId || storage.getCartId();
 
+    // For logged-in users, always prefer customerCart ID to avoid stale guest cart IDs.
+    if (authToken) {
+      const customerCartId = await loadCustomerCart(authToken);
+      if (customerCartId) {
+        activeCartId = customerCartId;
+        setCartId(customerCartId);
+      }
+    }
+
     // Tự phục hồi cart ID nếu thiếu (giúp tránh lỗi khi init thất bại do mạng thoáng qua)
     if (!activeCartId) {
       if (authToken) {
@@ -273,6 +303,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        storage.removeAuthUser();
         throw new Error('AUTH_REQUIRED');
       }
 
@@ -315,6 +346,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Timeout/network glitches from GraphQL proxy happen intermittently during deploy or upstream spikes.
+      // Retry one time with a freshly resolved cart to prevent user-facing add-to-cart failures.
+      if (isTransientCartError(error)) {
+        try {
+          let recoveredCartId: string | null = null;
+
+          if (authToken) {
+            recoveredCartId = await loadCustomerCart(authToken);
+          } else {
+            recoveredCartId = storage.getCartId() || cart?.id || cartId;
+            if (!recoveredCartId) {
+              recoveredCartId = await createGuestCart();
+            }
+          }
+
+          if (recoveredCartId) {
+            setCartId(recoveredCartId);
+            await executeAdd(recoveredCartId);
+            await refreshCart();
+            return;
+          }
+        } catch (retryError) {
+          console.error('Retry add after transient error failed:', retryError);
+          throw retryError;
+        }
+      }
+
       console.error('Failed to add to cart:', error);
       throw error;
     }
@@ -335,6 +393,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     // Prevent duplicate/racing updates on the same item when user taps +/- quickly.
     if (updateLocksRef.current.has(parsedItemId)) {
+      queuedQuantitiesRef.current.set(parsedItemId, parsedQuantity);
+      setCart((prev) => (prev ? applyOptimisticQuantity(prev, parsedItemId, parsedQuantity) : prev));
       return;
     }
     updateLocksRef.current.add(parsedItemId);
@@ -361,6 +421,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        storage.removeAuthUser();
         if (previousCartSnapshot) {
           setCart(previousCartSnapshot);
         }
@@ -387,6 +448,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
       throw error;
     } finally {
       updateLocksRef.current.delete(parsedItemId);
+
+      const queuedQuantity = queuedQuantitiesRef.current.get(parsedItemId);
+      if (typeof queuedQuantity === 'number' && queuedQuantity !== parsedQuantity) {
+        queuedQuantitiesRef.current.delete(parsedItemId);
+        void updateQuantity(cartItemId, queuedQuantity);
+        return;
+      }
+
+      queuedQuantitiesRef.current.delete(parsedItemId);
     }
   };
 
@@ -419,6 +489,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        storage.removeAuthUser();
         throw new Error('AUTH_REQUIRED');
       }
 

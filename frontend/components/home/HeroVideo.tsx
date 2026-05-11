@@ -45,9 +45,13 @@ function normalizeVideos(input: VideoItem[]): VideoItem[] {
 }
 
 export default function HeroVideo() {
-  const [videos, setVideos] = useState<VideoItem[]>(VIDEO_LIBRARY);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(true);
+  const [isPlayerLoading, setIsPlayerLoading] = useState(true);
+  const [isBannerLoading, setIsBannerLoading] = useState(true);
+  const [thumbnailLoading, setThumbnailLoading] = useState<Record<string, boolean>>({});
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [isSwiping, setIsSwiping] = useState(false);
   const [swipeDirection, setSwipeDirection] = useState<1 | -1>(1);
@@ -73,6 +77,20 @@ export default function HeroVideo() {
   const swipeTransition = `transform ${SWIPE_MS}ms ${SWIPE_EASING}`;
 
   useEffect(() => {
+    setThumbnailLoading((previous) => {
+      const next: Record<string, boolean> = {};
+      for (const video of visibleVideos) {
+        next[video.id] = previous[video.id] ?? true;
+      }
+      return next;
+    });
+  }, [visibleVideos]);
+
+  useEffect(() => {
+    setIsPlayerLoading(true);
+  }, [selectedVideo.id]);
+
+  useEffect(() => {
     if (visibleVideos.length === 0) {
       setSelectedVideoId(null);
       return;
@@ -84,6 +102,7 @@ export default function HeroVideo() {
       }
       return visibleVideos[0].id;
     });
+    setIsPlayerLoading(true);
   }, [visibleVideos]);
 
   useEffect(() => {
@@ -172,7 +191,7 @@ export default function HeroVideo() {
 
     const fetchLatestVideos = async () => {
       try {
-          const response = await fetch('/api/videos/latest?limit=12', { cache: 'no-store' });
+        const response = await fetch('/api/videos/latest?limit=12', { cache: 'no-store' });
         if (!response.ok) {
           return;
         }
@@ -181,11 +200,18 @@ export default function HeroVideo() {
         const remoteVideos = payload?.data?.videos || [];
         const normalized = normalizeVideos(remoteVideos);
 
-        if (!cancelled && normalized.length > 0) {
-          setVideos(normalized);
+        if (!cancelled) {
+          setVideos(normalized.length > 0 ? normalized : VIDEO_LIBRARY);
         }
       } catch {
         // Keep current list when API is temporarily unavailable.
+        if (!cancelled) {
+          setVideos(VIDEO_LIBRARY);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLibraryLoading(false);
+        }
       }
     };
 
@@ -203,10 +229,18 @@ export default function HeroVideo() {
       {/* Cột Trái: Banner */}
       <div className="w-full lg:w-[65%] h-[200px] sm:h-[300px] lg:h-full rounded-xl overflow-hidden shadow-sm bg-gray-100">
         <div className="relative w-full h-full">
+          {(isLibraryLoading || isBannerLoading) && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/35 text-white">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+                Đang tải ảnh...
+              </div>
+            </div>
+          )}
           <img
             src={activeVideo.banner}
             alt={activeVideo.title}
-            className="absolute inset-0 w-full h-full object-cover"
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${(isLibraryLoading || isBannerLoading) ? 'opacity-0' : 'opacity-100'}`}
             style={{
               transform:
                 pendingIndex !== null && isSwiping
@@ -219,7 +253,9 @@ export default function HeroVideo() {
             }}
             onError={(e) => {
               (e.target as HTMLImageElement).src = '/images/xiaomi17-pro.jpg';
+              setIsBannerLoading(false);
             }}
+            onLoad={() => setIsBannerLoading(false)}
           />
 
           {pendingIndex !== null && (
@@ -247,35 +283,73 @@ export default function HeroVideo() {
 
       {/* Cột Phải: Video Area */}
       <div className="w-full lg:w-[35%] flex flex-col gap-2 h-[400px] lg:h-full">
-          <div className="flex-1 rounded-xl overflow-hidden relative shadow-sm bg-black border border-gray-100">
+        <div className="flex-1 rounded-xl overflow-hidden relative shadow-sm bg-black border border-gray-100">
+          {(isLibraryLoading || isPlayerLoading) && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/65 text-white">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+                Đang tải nội dung...
+              </div>
+            </div>
+          )}
           <iframe
-            className="absolute inset-0 w-full h-full"
-              src={`https://www.youtube-nocookie.com/embed/${selectedVideo.id}?rel=0&modestbranding=1&playsinline=1`}
-              title={selectedVideo.title}
+            className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${(isLibraryLoading || isPlayerLoading) ? 'opacity-0' : 'opacity-100'}`}
+            src={`https://www.youtube-nocookie.com/embed/${selectedVideo.id}?rel=0&modestbranding=1&playsinline=1`}
+            title={selectedVideo.title}
             frameBorder="0"
             allowFullScreen
+            onLoad={() => setIsPlayerLoading(false)}
           />
         </div>
 
         {/* Thumbnails */}
         <div className="h-[25%] flex gap-2 overflow-x-auto pb-1">
-          {visibleVideos.map((video) => (
-            <div
-              key={video.id}
-              onClick={() => setSelectedVideoId(video.id)}
-              className={`relative min-w-[118px] sm:min-w-[130px] flex-1 rounded-lg overflow-hidden cursor-pointer group border-2 transition-all 
-                ${highlightedVideoId === video.id ? 'border-amber-500' : 'border-transparent'}`}
-            >
-              <img
-                src={`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`}
-                className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
-                alt={video.title}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = '/images/placeholder.svg';
+          {isLibraryLoading
+            ? Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={`hero-thumb-skeleton-${index}`}
+                className="relative min-w-[118px] sm:min-w-[130px] flex-1 rounded-lg overflow-hidden border border-white/20 bg-gray-900/55 animate-pulse"
+              >
+                <div className="absolute inset-0 flex items-center justify-center text-white/80">
+                  <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+                </div>
+              </div>
+            ))
+            : visibleVideos.map((video) => (
+              <div
+                key={video.id}
+                onClick={() => {
+                  setIsPlayerLoading(true);
+                  setSelectedVideoId(video.id);
                 }}
-              />
-            </div>
-          ))}
+                className={`relative min-w-[118px] sm:min-w-[130px] flex-1 rounded-lg overflow-hidden cursor-pointer group border-2 transition-all 
+                  ${highlightedVideoId === video.id ? 'border-amber-500' : 'border-transparent'}`}
+              >
+                {thumbnailLoading[video.id] && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/45 text-white">
+                    <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+                  </div>
+                )}
+                <img
+                  src={`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`}
+                  className={`w-full h-full object-cover group-hover:opacity-80 transition-opacity ${thumbnailLoading[video.id] ? 'opacity-0' : 'opacity-100'}`}
+                  alt={video.title}
+                  onLoad={() => {
+                    setThumbnailLoading((previous) => ({
+                      ...previous,
+                      [video.id]: false,
+                    }));
+                  }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/images/placeholder.svg';
+                    setThumbnailLoading((previous) => ({
+                      ...previous,
+                      [video.id]: false,
+                    }));
+                  }}
+                />
+              </div>
+            ))}
         </div>
       </div>
     </div>

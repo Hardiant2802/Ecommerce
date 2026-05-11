@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInternalOrder, updateInternalOrder } from '@/lib/services/internalOrders';
 import { syncInternalOrderToMagento } from '@/lib/services/magentoSync';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface RouteProps {
   params: Promise<{
@@ -70,8 +70,8 @@ export async function POST(request: NextRequest, { params }: RouteProps) {
 
   const updated = await updateInternalOrder(orderId, {
     magentoSyncStatus: 'success',
-    magentoOrderNumber: result.orderNumber,
-    magentoQuoteId: result.quoteId,
+    magentoOrderNumber: result.orderNumber || order.magentoOrderNumber,
+    magentoQuoteId: result.quoteId || order.magentoQuoteId,
     magentoSyncError: undefined,
   });
 

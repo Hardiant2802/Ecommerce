@@ -4,6 +4,14 @@ import {
 	InternalOrderStatus,
 	MagentoSyncStatus,
 } from '@/types/order';
+import {
+	findInternalOrderIdByPaymentCodeFromDb,
+	findInternalOrderIdByTransactionIdFromDb,
+	getInternalOrderFromDb,
+	hasDbPersistence,
+	listInternalOrdersFromDb,
+	upsertInternalOrderToDb,
+} from '@/lib/services/internalOrdersDb';
 
 interface InternalOrderStore {
 	byId: Map<string, InternalOrder>;
@@ -252,8 +260,147 @@ function listOrdersFromMemory(limit: number): InternalOrder[] {
 		.slice(0, Math.max(1, Math.min(limit, 200)));
 }
 
+export interface InternalOrdersKvToDbMigrationResult {
+	ok: boolean;
+	reason?: string;
+	limit: number;
+	keysFound: number;
+	scanned: number;
+	migrated: number;
+	skipped: number;
+	failed: number;
+	errors: string[];
+}
+
+function isMigratableInternalOrder(value: unknown): value is InternalOrder {
+	if (!value || typeof value !== 'object') return false;
+
+	const maybe = value as Partial<InternalOrder>;
+	if (!maybe.id || !maybe.paymentCode || !maybe.paymentMethod) return false;
+	if (!Array.isArray(maybe.items)) return false;
+	if (!maybe.currency) return false;
+	if (!Number.isFinite(Number(maybe.amount))) return false;
+	if (!Number.isFinite(Number(maybe.createdAt)) || !Number.isFinite(Number(maybe.updatedAt))) return false;
+
+	return true;
+}
+
+export async function migrateInternalOrdersFromKvToDb(limit = 500): Promise<InternalOrdersKvToDbMigrationResult> {
+	const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
+
+	if (!hasDbPersistence()) {
+		return {
+			ok: false,
+			reason: 'DB_PERSISTENCE_NOT_CONFIGURED',
+			limit: safeLimit,
+			keysFound: 0,
+			scanned: 0,
+			migrated: 0,
+			skipped: 0,
+			failed: 0,
+			errors: [],
+		};
+	}
+
+	if (!hasKvPersistence()) {
+		return {
+			ok: true,
+			reason: 'KV_PERSISTENCE_NOT_CONFIGURED',
+			limit: safeLimit,
+			keysFound: 0,
+			scanned: 0,
+			migrated: 0,
+			skipped: 0,
+			failed: 0,
+			errors: [],
+		};
+	}
+
+	const keys = await kvListOrderKeys(safeLimit);
+	let scanned = 0;
+	let migrated = 0;
+	let skipped = 0;
+	let failed = 0;
+	const errors: string[] = [];
+
+	for (const key of keys) {
+		scanned += 1;
+
+		const raw = await kvGetText(key);
+		if (!raw) {
+			skipped += 1;
+			continue;
+		}
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch (error) {
+			failed += 1;
+			if (errors.length < 30) {
+				errors.push(`${key}: JSON_PARSE_ERROR:${error instanceof Error ? error.message : 'unknown'}`);
+			}
+			continue;
+		}
+
+		if (!isMigratableInternalOrder(parsed)) {
+			skipped += 1;
+			continue;
+		}
+
+		const migratedOrder = await upsertInternalOrderToDb(parsed);
+		if (!migratedOrder) {
+			failed += 1;
+			if (errors.length < 30) {
+				errors.push(`${key}: DB_UPSERT_FAILED`);
+			}
+			continue;
+		}
+
+		cacheOrder(parsed);
+		migrated += 1;
+	}
+
+	return {
+		ok: failed === 0,
+		limit: safeLimit,
+		keysFound: keys.length,
+		scanned,
+		migrated,
+		skipped,
+		failed,
+		errors,
+	};
+}
+
 async function persistOrder(order: InternalOrder): Promise<InternalOrder> {
 	let orderToPersist = order;
+
+	if (hasDbPersistence()) {
+		const existing = await getInternalOrderFromDb(order.id);
+		if (existing && existing.status === 'paid' && order.status !== 'paid') {
+			orderToPersist = {
+				...order,
+				status: 'paid',
+				paidAt: existing.paidAt || order.paidAt || Date.now(),
+				sepayTransactionId: existing.sepayTransactionId || order.sepayTransactionId,
+				lastPaymentAmountReceived: Math.max(
+					existing.lastPaymentAmountReceived || 0,
+					order.lastPaymentAmountReceived || 0
+				),
+				lastPaymentCheckedAt: Math.max(
+					existing.lastPaymentCheckedAt || 0,
+					order.lastPaymentCheckedAt || 0
+				),
+				paymentStatusMessage: existing.paymentStatusMessage || order.paymentStatusMessage,
+				magentoSyncStatus: existing.magentoSyncStatus || order.magentoSyncStatus,
+				magentoOrderNumber: existing.magentoOrderNumber || order.magentoOrderNumber,
+				magentoQuoteId: existing.magentoQuoteId || order.magentoQuoteId,
+				magentoSyncError: order.magentoSyncError ?? existing.magentoSyncError,
+				updatedAt: Math.max(existing.updatedAt || 0, order.updatedAt || 0),
+			};
+		}
+	}
 
 	if (hasKvPersistence()) {
 		const existingRaw = await kvGetText(`${ORDER_PREFIX}${order.id}`);
@@ -302,6 +449,10 @@ async function persistOrder(order: InternalOrder): Promise<InternalOrder> {
 			...paymentKeys.map((key) => kvPutText(key, orderToPersist.id)),
 			...transactionKeys.map((key) => kvPutText(key, orderToPersist.id)),
 		]);
+	}
+
+	if (hasDbPersistence()) {
+		await upsertInternalOrderToDb(orderToPersist);
 	}
 
 	return orderToPersist;
@@ -399,6 +550,14 @@ async function findOrderIdByTransactionId(transactionId: string): Promise<string
 		return cached;
 	}
 
+	if (hasDbPersistence()) {
+		const dbOrderId = await findInternalOrderIdByTransactionIdFromDb(normalized);
+		if (dbOrderId) {
+			store.byTransactionId.set(normalized, dbOrderId);
+			return dbOrderId;
+		}
+	}
+
 	if (!hasKvPersistence()) {
 		return null;
 	}
@@ -475,6 +634,13 @@ export async function getInternalOrder(orderId: string): Promise<InternalOrder |
 	const cached = store.byId.get(orderId);
 	if (cached) return cached;
 
+	if (hasDbPersistence()) {
+		const dbOrder = await getInternalOrderFromDb(orderId);
+		if (dbOrder) {
+			return cacheOrder(dbOrder);
+		}
+	}
+
 	if (!hasKvPersistence()) {
 		return null;
 	}
@@ -492,6 +658,16 @@ export async function getInternalOrder(orderId: string): Promise<InternalOrder |
 }
 
 export async function listInternalOrders(limit = 50): Promise<InternalOrder[]> {
+	if (hasDbPersistence()) {
+		const dbOrders = await listInternalOrdersFromDb(limit);
+		if (dbOrders.length > 0) {
+			dbOrders.forEach((order) => {
+				cacheOrder(order);
+			});
+			return dbOrders;
+		}
+	}
+
 	if (!hasKvPersistence()) {
 		return listOrdersFromMemory(limit);
 	}
@@ -536,6 +712,17 @@ export async function findInternalOrderByPaymentCode(paymentCode: string): Promi
 	if (cachedCompactOrderId) {
 		store.byPaymentCode.set(normalized, cachedCompactOrderId);
 		return getInternalOrder(cachedCompactOrderId);
+	}
+
+	if (hasDbPersistence()) {
+		const dbOrderId = await findInternalOrderIdByPaymentCodeFromDb(paymentCode);
+		if (dbOrderId) {
+			store.byPaymentCode.set(normalized, dbOrderId);
+			if (compact) {
+				store.byPaymentCode.set(compact, dbOrderId);
+			}
+			return getInternalOrder(dbOrderId);
+		}
 	}
 
 	if (!hasKvPersistence()) {

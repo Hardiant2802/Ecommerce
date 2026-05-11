@@ -53,6 +53,8 @@ interface PendingCartSync {
   itemUid?: string;
   sku: string;
   paidUnits: number;
+  checkoutMode?: SingleCheckoutMode;
+  expectedQuantityBeforePay?: number;
   savedAt: number;
 }
 
@@ -157,6 +159,40 @@ function writePendingCartSync(payload: PendingCartSync): void {
   storage.setItem(CART_SYNC_STORAGE_KEY, JSON.stringify(payload));
 }
 
+function readPendingCartSync(): PendingCartSync | null {
+  const storage = getSessionStorageSafe();
+  if (!storage) return null;
+
+  const raw = storage.getItem(CART_SYNC_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingCartSync>;
+    const orderId = String(parsed.orderId || '').trim();
+    const sku = String(parsed.sku || '').trim();
+    if (!orderId || !sku) return null;
+
+    return {
+      orderId,
+      itemId: String(parsed.itemId || '').trim() || undefined,
+      itemUid: String(parsed.itemUid || '').trim() || undefined,
+      sku,
+      paidUnits: Math.max(1, Math.floor(Number(parsed.paidUnits || 1))),
+      checkoutMode: parsed.checkoutMode === 'total' ? 'total' : 'single',
+      expectedQuantityBeforePay: Math.max(0, Math.floor(Number(parsed.expectedQuantityBeforePay || 0))),
+      savedAt: Number(parsed.savedAt || 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingCartSync(): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  storage.removeItem(CART_SYNC_STORAGE_KEY);
+}
+
 function formatCountdown(ms: number): string {
   const safeSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(safeSeconds / 60);
@@ -174,7 +210,7 @@ export default function CheckoutPage() {
   const singleCheckoutMode: SingleCheckoutMode = requestedModeRaw === 'total' ? 'total' : 'single';
   const paymentFromQuery = (searchParams.get('payment') || '').trim().toLowerCase();
   const forceNewOrder = ['1', 'true', 'yes', 'on'].includes((searchParams.get('buyAgain') || '').trim().toLowerCase());
-  const { cart, loading } = useCart();
+  const { cart, loading, addToCart, updateQuantity, removeItem, refreshCart } = useCart();
   const { user, isAuthenticated, loading: authLoading } = useAuth();
 
   const [orderNote, setOrderNote] = useState('');
@@ -188,9 +224,18 @@ export default function CheckoutPage() {
   const [copiedField, setCopiedField] = useState<'account' | 'content' | null>(null);
   const [previewOrderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [switchingCheckoutMode, setSwitchingCheckoutMode] = useState(false);
+  const [ensuringSkuItem, setEnsuringSkuItem] = useState(false);
   const creatingBankingOrderRef = useRef(false);
+  const createOrderAbortRef = useRef<AbortController | null>(null);
+  const ensureSkuAttemptRef = useRef<string>('');
+  const checkoutScopeRef = useRef<{ fingerprint: string; nonce: number }>({
+    fingerprint: '',
+    nonce: 0,
+  });
   const internalOrderScopeRef = useRef<string>('');
   const cartSyncedPaidOrderRef = useRef<string>('');
+  const paymentCheckRequestSeqRef = useRef(0);
 
   const paymentMethodLabel: Record<PaymentMethod, string> = {
     cod: 'Thanh toán khi nhận hàng (COD)',
@@ -294,6 +339,71 @@ export default function CheckoutPage() {
   const qrIsExpired = Boolean(internalOrder && internalOrder.status !== 'paid' && qrExpireAt > 0 && qrRemainingMs <= 0);
   const qrCountdownText = formatCountdown(qrRemainingMs);
 
+  useEffect(() => {
+    if (
+      authLoading ||
+      loading ||
+      !isAuthenticated ||
+      !isSingleProductCheckout ||
+      !sku ||
+      itemId ||
+      checkoutItems.length > 0
+    ) {
+      return;
+    }
+
+    if (ensureSkuAttemptRef.current === sku) {
+      return;
+    }
+    ensureSkuAttemptRef.current = sku;
+
+    let cancelled = false;
+    const ensureSkuInCart = async () => {
+      setEnsuringSkuItem(true);
+      try {
+        await addToCart(sku, 1);
+        if (!cancelled) {
+          await refreshCart();
+        }
+      } catch (error) {
+        console.error('Unable to auto-add checkout SKU to cart:', error);
+        if (!cancelled) {
+          setOrderError('Không thể chuẩn bị sản phẩm để thanh toán. Vui lòng thử lại.');
+        }
+      } finally {
+        if (!cancelled) {
+          setEnsuringSkuItem(false);
+        }
+      }
+    };
+
+    void ensureSkuInCart();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    addToCart,
+    authLoading,
+    checkoutItems.length,
+    isAuthenticated,
+    isSingleProductCheckout,
+    itemId,
+    loading,
+    refreshCart,
+    sku,
+  ]);
+
+  const isScopeStale = useCallback((expectedFingerprint: string, expectedNonce: number): boolean => {
+    return checkoutScopeRef.current.fingerprint !== expectedFingerprint || checkoutScopeRef.current.nonce !== expectedNonce;
+  }, []);
+
+  useEffect(() => {
+    checkoutScopeRef.current = {
+      fingerprint: checkoutFingerprint,
+      nonce: checkoutScopeRef.current.nonce + 1,
+    };
+  }, [checkoutFingerprint]);
+
   const copyText = async (value: string, field: 'account' | 'content') => {
     try {
       if (typeof navigator === 'undefined' || !navigator.clipboard) {
@@ -319,7 +429,6 @@ export default function CheckoutPage() {
 
     params.set('payment', 'banking');
     params.set('mode', mode);
-    params.set('buyAgain', '1');
     return `/checkout?${params.toString()}`;
   }, [itemId, sku]);
 
@@ -328,13 +437,35 @@ export default function CheckoutPage() {
       return;
     }
 
+    if (mode === singleCheckoutMode) {
+      return;
+    }
+
+    createOrderAbortRef.current?.abort();
+    createOrderAbortRef.current = null;
+    creatingBankingOrderRef.current = false;
+    checkoutScopeRef.current = {
+      fingerprint: checkoutScopeRef.current.fingerprint,
+      nonce: checkoutScopeRef.current.nonce + 1,
+    };
+
+    setSwitchingCheckoutMode(true);
     setOrderPlaced(false);
     setOrderError(null);
+    setCreatingBankingOrder(false);
     setInternalOrder(null);
     setShowPaidNotice(false);
     clearStoredBankingOrder();
     router.push(buildSingleCheckoutUrl(mode));
   };
+
+  useEffect(() => {
+    if (!switchingCheckoutMode) {
+      return;
+    }
+
+    setSwitchingCheckoutMode(false);
+  }, [checkoutFingerprint, switchingCheckoutMode]);
 
   const buildItemsPayload = useCallback((): InternalOrderItemPayload[] => {
     return checkoutItems.map((item) => {
@@ -352,6 +483,9 @@ export default function CheckoutPage() {
   }, [checkoutItems, resolveCheckoutItemQuantity]);
 
   const refreshOrderStatus = useCallback(async (orderId: string): Promise<InternalOrderSummary | null> => {
+    const expectedFingerprint = checkoutFingerprint;
+    const expectedNonce = checkoutScopeRef.current.nonce;
+
     try {
       const response = await fetch(`/api/orders/internal/${encodeURIComponent(orderId)}`, {
         method: 'GET',
@@ -360,8 +494,30 @@ export default function CheckoutPage() {
 
       if (!response.ok) return null;
       const data = (await response.json()) as { order?: InternalOrderSummary };
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
       if (data.order) {
-        setInternalOrder(data.order);
+        setInternalOrder((previous) => {
+          if (!previous) return data.order as InternalOrderSummary;
+          if (previous.status === 'paid' && data.order?.status !== 'paid') {
+            return previous;
+          }
+
+          const previousUpdatedAt = Number(previous.updatedAt || 0);
+          const nextUpdatedAt = Number(data.order?.updatedAt || 0);
+          if (
+            previousUpdatedAt > 0 &&
+            nextUpdatedAt > 0 &&
+            nextUpdatedAt < previousUpdatedAt &&
+            data.order?.status !== 'paid'
+          ) {
+            return previous;
+          }
+
+          return data.order as InternalOrderSummary;
+        });
         internalOrderScopeRef.current = checkoutFingerprint;
         writeStoredBankingOrder(data.order.id, checkoutFingerprint);
         return data.order;
@@ -371,7 +527,7 @@ export default function CheckoutPage() {
       console.error('Refresh order status failed:', error);
       return null;
     }
-  }, [checkoutFingerprint]);
+  }, [checkoutFingerprint, isScopeStale]);
 
   const createBankingOrder = useCallback(async (): Promise<InternalOrderSummary | null> => {
     if (internalOrder) return internalOrder;
@@ -381,12 +537,18 @@ export default function CheckoutPage() {
     setCreatingBankingOrder(true);
     setOrderError(null);
 
+    const expectedFingerprint = checkoutFingerprint;
+    const expectedNonce = checkoutScopeRef.current.nonce;
+    const abortController = new AbortController();
+    createOrderAbortRef.current = abortController;
+
     try {
       const response = await fetch('/api/orders/internal', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: abortController.signal,
         body: JSON.stringify({
           paymentMethod: 'banking',
           amount: orderTotal,
@@ -399,6 +561,10 @@ export default function CheckoutPage() {
 
       const data = (await response.json()) as { order?: InternalOrderSummary; error?: string };
 
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
       if (!response.ok || !data.order) {
         throw new Error(data.error || 'Không thể tạo mã thanh toán.');
       }
@@ -408,16 +574,32 @@ export default function CheckoutPage() {
       writeStoredBankingOrder(data.order.id, checkoutFingerprint);
       return data.order;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return null;
+      }
+
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
       console.error('Create banking order failed:', error);
       setOrderError(error instanceof Error ? error.message : 'Không thể tạo mã thanh toán.');
       return null;
     } finally {
+      if (createOrderAbortRef.current === abortController) {
+        createOrderAbortRef.current = null;
+      }
       creatingBankingOrderRef.current = false;
       setCreatingBankingOrder(false);
     }
-  }, [buildItemsPayload, checkoutFingerprint, currency, internalOrder, orderNote, orderTotal, user?.email]);
+  }, [buildItemsPayload, checkoutFingerprint, currency, internalOrder, isScopeStale, orderNote, orderTotal, user?.email]);
 
   const checkPaymentStatus = useCallback(async (orderId: string): Promise<InternalOrderSummary | null> => {
+    const expectedFingerprint = checkoutFingerprint;
+    const expectedNonce = checkoutScopeRef.current.nonce;
+    const requestSeq = paymentCheckRequestSeqRef.current + 1;
+    paymentCheckRequestSeqRef.current = requestSeq;
+
     try {
       const response = await fetch(`/api/orders/internal/${encodeURIComponent(orderId)}/check-payment`, {
         method: 'POST',
@@ -429,8 +611,35 @@ export default function CheckoutPage() {
       }
 
       const data = (await response.json()) as { order?: InternalOrderSummary };
+
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
+      if (requestSeq !== paymentCheckRequestSeqRef.current) {
+        return null;
+      }
+
       if (data.order) {
-        setInternalOrder(data.order);
+        setInternalOrder((previous) => {
+          if (!previous) return data.order as InternalOrderSummary;
+          if (previous.status === 'paid' && data.order?.status !== 'paid') {
+            return previous;
+          }
+
+          const previousUpdatedAt = Number(previous.updatedAt || 0);
+          const nextUpdatedAt = Number(data.order?.updatedAt || 0);
+          if (
+            previousUpdatedAt > 0 &&
+            nextUpdatedAt > 0 &&
+            nextUpdatedAt < previousUpdatedAt &&
+            data.order?.status !== 'paid'
+          ) {
+            return previous;
+          }
+
+          return data.order as InternalOrderSummary;
+        });
         return data.order;
       }
 
@@ -439,10 +648,90 @@ export default function CheckoutPage() {
       console.error('Proactive payment check failed:', error);
       return refreshOrderStatus(orderId);
     }
-  }, [refreshOrderStatus]);
+  }, [checkoutFingerprint, isScopeStale, refreshOrderStatus]);
+
+  const applyPaidCartSync = useCallback(async (): Promise<void> => {
+    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid' || !isSingleProductCheckout) {
+      return;
+    }
+
+    const paidOrderId = internalOrder?.id || '';
+    if (!paidOrderId) {
+      return;
+    }
+
+    const selectedItem = checkoutItems[0];
+    const pendingPayload = readPendingCartSync();
+
+    const sourceQuantity = selectedItem
+      ? Math.max(1, Math.floor(selectedItem.quantity))
+      : Math.max(1, Math.floor(Number(pendingPayload?.expectedQuantityBeforePay || 1)));
+    const paidUnits = pendingPayload
+      ? Math.max(1, Math.floor(pendingPayload.paidUnits || 1))
+      : (singleCheckoutMode === 'total' ? resolveCheckoutItemQuantity(sourceQuantity) : 1);
+
+    const currentItems = Array.isArray(cart?.items) ? cart.items : [];
+    const matchedItem = currentItems.find((item) => {
+      if (pendingPayload?.itemId && item.id === pendingPayload.itemId) return true;
+      if (pendingPayload?.itemUid && item.uid === pendingPayload.itemUid) return true;
+      if (selectedItem?.id && item.id === selectedItem.id) return true;
+      if (selectedItem?.uid && item.uid === selectedItem.uid) return true;
+
+      const targetSku = pendingPayload?.sku || selectedItem?.product.sku || '';
+      return Boolean(targetSku) && item.product.sku === targetSku;
+    });
+
+    if (!matchedItem) {
+      clearPendingCartSync();
+      await refreshCart();
+      return;
+    }
+
+    const currentQuantity = Math.max(0, Math.floor(matchedItem.quantity));
+    const nextQuantity = Math.max(0, currentQuantity - paidUnits);
+
+    if (nextQuantity <= 0) {
+      await removeItem(matchedItem.id);
+    } else {
+      await updateQuantity(matchedItem.id, nextQuantity);
+    }
+
+    clearPendingCartSync();
+    await refreshCart();
+  }, [
+    cart?.items,
+    checkoutItems,
+    internalOrder?.id,
+    internalOrder?.status,
+    isSingleProductCheckout,
+    paymentMethod,
+    refreshCart,
+    removeItem,
+    resolveCheckoutItemQuantity,
+    singleCheckoutMode,
+    updateQuantity,
+  ]);
+
+  const handleContinueShopping = useCallback(async () => {
+    try {
+      await applyPaidCartSync();
+    } catch (error) {
+      console.error('Continue shopping sync failed:', error);
+    } finally {
+      router.push('/');
+    }
+  }, [applyPaidCartSync, router]);
 
   useEffect(() => {
-    if (authLoading || loading || isEmpty || checkoutItems.length === 0 || paymentMethod !== 'banking' || internalOrder) {
+    if (
+      authLoading ||
+      loading ||
+      isEmpty ||
+      checkoutItems.length === 0 ||
+      paymentMethod !== 'banking' ||
+      internalOrder ||
+      switchingCheckoutMode
+    ) {
       return;
     }
 
@@ -482,7 +771,19 @@ export default function CheckoutPage() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, loading, isEmpty, checkoutItems.length, checkoutFingerprint, createBankingOrder, forceNewOrder, internalOrder, paymentMethod, refreshOrderStatus]);
+  }, [
+    authLoading,
+    loading,
+    isEmpty,
+    checkoutItems.length,
+    checkoutFingerprint,
+    createBankingOrder,
+    forceNewOrder,
+    internalOrder,
+    paymentMethod,
+    refreshOrderStatus,
+    switchingCheckoutMode,
+  ]);
 
   useEffect(() => {
     if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid') {
@@ -496,6 +797,10 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (!internalOrder) {
       internalOrderScopeRef.current = '';
+      return;
+    }
+
+    if (internalOrder.status === 'paid') {
       return;
     }
 
@@ -553,15 +858,60 @@ export default function CheckoutPage() {
 
     cartSyncedPaidOrderRef.current = paidOrderId;
 
-    const paidUnits = resolveCheckoutItemQuantity(selectedItem.quantity);
-    writePendingCartSync({
+    const sourceQuantity = Math.max(1, Math.floor(selectedItem.quantity));
+    const paidUnits = singleCheckoutMode === 'total' ? resolveCheckoutItemQuantity(sourceQuantity) : 1;
+    const pendingPayload: PendingCartSync = {
       orderId: paidOrderId,
       itemId: selectedItem.id,
       itemUid: selectedItem.uid,
       sku: selectedItem.product.sku,
       paidUnits,
+      checkoutMode: singleCheckoutMode,
+      expectedQuantityBeforePay: sourceQuantity,
       savedAt: Date.now(),
+    };
+
+    // Persist pending sync first, then try to reconcile cart immediately.
+    // If immediate sync fails (network/transient), cart page fallback will apply it later.
+    writePendingCartSync(pendingPayload);
+
+    let cancelled = false;
+    const syncCartImmediately = async () => {
+      const currentItems = Array.isArray(cart?.items) ? cart.items : [];
+      const matchedItem = currentItems.find((item) => {
+        if (pendingPayload.itemId && item.id === pendingPayload.itemId) return true;
+        if (pendingPayload.itemUid && item.uid === pendingPayload.itemUid) return true;
+        return item.product.sku === pendingPayload.sku;
+      });
+
+      if (!matchedItem) {
+        clearPendingCartSync();
+        await refreshCart();
+        return;
+      }
+
+      const currentQuantity = Math.max(0, Math.floor(matchedItem.quantity));
+      const nextQuantity = Math.max(0, currentQuantity - pendingPayload.paidUnits);
+
+      if (nextQuantity <= 0) {
+        await removeItem(matchedItem.id);
+      } else {
+        await updateQuantity(matchedItem.id, nextQuantity);
+      }
+
+      clearPendingCartSync();
+      if (!cancelled) {
+        await refreshCart();
+      }
+    };
+
+    void syncCartImmediately().catch((error) => {
+      console.error('Immediate paid cart sync failed:', error);
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     paymentMethod,
     internalOrder?.id,
@@ -569,6 +919,11 @@ export default function CheckoutPage() {
     isSingleProductCheckout,
     checkoutItems,
     resolveCheckoutItemQuantity,
+    singleCheckoutMode,
+    cart?.items,
+    refreshCart,
+    removeItem,
+    updateQuantity,
   ]);
 
   useEffect(() => {
@@ -585,7 +940,7 @@ export default function CheckoutPage() {
     void poll();
     const timer = setInterval(() => {
       void poll();
-    }, 5000);
+    }, 1000);
 
     return () => {
       cancelled = true;
@@ -595,6 +950,11 @@ export default function CheckoutPage() {
 
   const handlePlaceOrder = async () => {
     setOrderError(null);
+
+    if (switchingCheckoutMode) {
+      setOrderError('Đang đồng bộ chế độ thanh toán. Vui lòng đợi trong giây lát.');
+      return;
+    }
 
     if (paymentMethod !== 'banking') {
       setOrderPlaced(true);
@@ -632,6 +992,17 @@ export default function CheckoutPage() {
   }
 
   if (!orderPlaced && !internalOrder && (isEmpty || checkoutItems.length === 0)) {
+    if (ensuringSkuItem) {
+      return (
+        <div className="min-h-screen bg-gray-50 py-8">
+          <div className="container-custom text-center py-20">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-primary-200 border-t-primary-600" />
+            <p className="text-gray-600">Đang chuẩn bị sản phẩm để thanh toán...</p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="container-custom text-center py-20">
@@ -697,7 +1068,7 @@ export default function CheckoutPage() {
             <p className="text-gray-600 mb-6 text-sm">
               {paymentMethod === 'banking'
                 ? isPaid
-                  ? 'Hệ thống đã nhận giao dịch chuyển khoản. Đơn hàng sẽ được đồng bộ sang Magento.'
+                  ? 'Hệ thống đã nhận giao dịch chuyển khoản. Đơn hàng đang được xử lý.'
                   : 'Đang chờ giao dịch chuyển khoản. Vui lòng chuyển đúng nội dung để xác nhận tự động.'
                 : `Bạn đã chọn ${paymentMethodLabel[paymentMethod].toLowerCase()}. Chúng tôi sẽ liên hệ xác nhận sớm nhất.`}
             </p>
@@ -751,19 +1122,16 @@ export default function CheckoutPage() {
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Đồng bộ Magento</span>
-                  <span className="font-semibold text-gray-900">{internalOrder?.magentoSyncStatus || 'not_started'}</span>
-                </div>
               </div>
             )}
 
-            <Link
-              href="/"
+            <button
+              type="button"
+              onClick={handleContinueShopping}
               className="inline-block bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
             >
               Tiếp tục mua sắm
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -797,6 +1165,7 @@ export default function CheckoutPage() {
                     <button
                       type="button"
                       onClick={() => handleSwitchSingleCheckoutMode('single')}
+                      disabled={switchingCheckoutMode}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
                         singleCheckoutMode === 'single'
                           ? 'border-primary-500 bg-primary-50 text-primary-700'
@@ -808,6 +1177,7 @@ export default function CheckoutPage() {
                     <button
                       type="button"
                       onClick={() => handleSwitchSingleCheckoutMode('total')}
+                      disabled={switchingCheckoutMode}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
                         singleCheckoutMode === 'total'
                           ? 'border-primary-500 bg-primary-50 text-primary-700'
@@ -923,10 +1293,12 @@ export default function CheckoutPage() {
 
               <button
                 onClick={handlePlaceOrder}
-                disabled={placingOrder || (paymentMethod === 'banking' && creatingBankingOrder)}
+                disabled={switchingCheckoutMode || placingOrder || (paymentMethod === 'banking' && creatingBankingOrder)}
                 className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-xl transition-colors"
               >
-                {placingOrder
+                {switchingCheckoutMode
+                  ? 'Đang đồng bộ chế độ thanh toán...'
+                  : placingOrder
                   ? 'Đang xử lý...'
                   : paymentMethod === 'banking'
                     ? creatingBankingOrder
@@ -949,9 +1321,11 @@ export default function CheckoutPage() {
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-4">
                   <h4 className="font-semibold text-emerald-800">Quét QR để thanh toán</h4>
 
-                  {!internalOrder ? (
+                  {!internalOrder || switchingCheckoutMode ? (
                     <div className="text-xs text-sky-800 bg-sky-50 border border-sky-200 rounded-lg p-3">
-                      Đang tạo mã thanh toán thực để đối soát. Vui lòng đợi hệ thống hiện QR và nội dung chuyển khoản rồi mới thanh toán.
+                      {switchingCheckoutMode
+                        ? 'Đang đồng bộ chế độ thanh toán lẻ/tổng. Vui lòng đợi QR mới trước khi quét.'
+                        : 'Đang tạo mã thanh toán thực để đối soát. Vui lòng đợi hệ thống hiện QR và nội dung chuyển khoản rồi mới thanh toán.'}
                     </div>
                   ) : (
                     <>
