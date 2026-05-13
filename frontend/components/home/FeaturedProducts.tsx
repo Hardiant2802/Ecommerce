@@ -8,13 +8,13 @@ import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import { formatPrice } from '@/lib/utils/formatters';
 import { buildProductPath } from '@/lib/utils/productRouting';
 import { Product } from '@/types/product';
-import { getFallbackProducts } from '../../constants/fallbackProducts';
 
 interface FeaturedProductsProps {
   searchQuery?: string;
 }
 
-const HOME_PHONE_CATEGORY_IDS = ['54'];
+const HOME_PHONE_CATEGORY_IDS = ['55', '56', '57', '58', '59', '60', '61', '62'];
+const HOME_FETCH_SIZE = 80;
 
 function hashString(value: string): number {
   let hash = 0;
@@ -25,93 +25,8 @@ function hashString(value: string): number {
   return Math.abs(hash);
 }
 
-function sortProductsBySeed(items: Product[], seed: string): Product[] {
+function shuffleBySeed(items: Product[], seed: string): Product[] {
   return [...items].sort((a, b) => {
-    const aKey = hashString(`${a.sku}-${seed}`);
-    const bKey = hashString(`${b.sku}-${seed}`);
-    return aKey - bKey;
-  });
-}
-
-function normalizeText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
-
-function includesAny(value: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => value.includes(keyword));
-}
-
-const PHONE_HINTS = [
-  'dien thoai',
-  'smartphone',
-  'iphone',
-  'galaxy',
-  'redmi',
-  'oneplus',
-  'oppo',
-  'vivo',
-  'rog phone',
-  'red magic',
-  'pixel',
-  'nubia',
-];
-
-const ACCESSORY_HINTS = [
-  'tai nghe',
-  'headphone',
-  'airpods',
-  'phu kien',
-  'op lung',
-  'bao da',
-  'sac',
-  'cap ',
-  'adapter',
-  'charger',
-  'cuong luc',
-  'mag safe',
-  'magsafe',
-  'dock',
-  'loa ',
-  'speaker',
-  'pin du phong',
-  'power bank',
-  'watch strap',
-  'cable',
-];
-
-function buildProductSearchText(product: Product): string {
-  const categoryText = (product.categories || [])
-    .map((category) => `${category.name || ''} ${category.url_key || ''} ${category.url_path || ''}`)
-    .join(' ');
-
-  return normalizeText(`${product.name || ''} ${product.sku || ''} ${product.url_key || ''} ${categoryText}`);
-}
-
-function getHomePriority(product: Product): number {
-  const text = buildProductSearchText(product);
-  const isPhone = includesAny(text, PHONE_HINTS);
-  const isAccessory = includesAny(text, ACCESSORY_HINTS);
-
-  if (isPhone && !isAccessory) return 0;
-  if (!isPhone && isAccessory) return 2;
-  if (isPhone) return 0;
-  if (isAccessory) return 2;
-  return 1;
-}
-
-function sortProductsForHome(items: Product[], seed: string, prioritizePhones: boolean): Product[] {
-  return [...items].sort((a, b) => {
-    if (prioritizePhones) {
-      const priorityDiff = getHomePriority(a) - getHomePriority(b);
-      if (priorityDiff !== 0) {
-        return priorityDiff;
-      }
-    }
-
     const aKey = hashString(`${a.sku}-${seed}`);
     const bKey = hashString(`${b.sku}-${seed}`);
     return aKey - bKey;
@@ -125,9 +40,10 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
   const [loadingMore, setLoadingMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [shuffleSeed] = useState(() => `${Date.now()}-${Math.random()}`);
   const requestControllerRef = useRef<AbortController | null>(null);
-  const prioritizePhones = !searchQuery.trim();
+  const isSearching = Boolean(searchQuery.trim());
 
   const loadProducts = useCallback(async (page: number, append: boolean) => {
     requestControllerRef.current?.abort();
@@ -144,25 +60,21 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
       const variables: {
         pageSize: number;
         currentPage: number;
-        filter: {
-          price: { from: string };
-          category_id?: { in: string[] };
-        };
         search?: string;
+        filter?: {
+          category_id: { in: string[] };
+        };
       } = {
-        pageSize: PAGE_SIZE,
-        currentPage: page,
-        filter: {
-          price: { from: '0' },
-        },
+        pageSize: isSearching ? PAGE_SIZE : HOME_FETCH_SIZE,
+        currentPage: isSearching ? page : 1,
       };
 
-      if (prioritizePhones) {
-        variables.filter.category_id = { in: HOME_PHONE_CATEGORY_IDS };
-      }
-
-      if (searchQuery) {
+      if (isSearching) {
         variables.search = searchQuery;
+      } else {
+        variables.filter = {
+          category_id: { in: HOME_PHONE_CATEGORY_IDS },
+        };
       }
 
       const data = await graphqlClient<{
@@ -180,50 +92,48 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
         ttlMs: 10 * 1000,
         signal: controller.signal,
       });
+      const apiItems = data.products.items || [];
 
-      setProducts((prev) => {
-        const merged = append ? [...prev, ...data.products.items] : data.products.items;
-        const deduped = merged.filter(
-          (item, index, array) => array.findIndex((p) => p.id === item.id) === index
+      if (!isSearching) {
+        const deduped = apiItems.filter(
+          (item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index
         );
+        const randomized = shuffleBySeed(deduped, shuffleSeed);
+        setProducts(randomized);
+        setCurrentPage(1);
+        setTotalPages(Math.max(1, Math.ceil(randomized.length / PAGE_SIZE)));
+      } else {
+        setProducts((prev) => {
+          if (!append) {
+            return apiItems;
+          }
 
-        return sortProductsForHome(deduped, shuffleSeed, prioritizePhones);
-      });
+          const existingIds = new Set(prev.map((item) => item.id));
+          const nextItems = apiItems.filter((item) => !existingIds.has(item.id));
+          return [...prev, ...nextItems];
+        });
 
-      setCurrentPage(data.products.page_info?.current_page || page);
-      setTotalPages(data.products.page_info?.total_pages || 1);
+        setCurrentPage(data.products.page_info?.current_page || page);
+        setTotalPages(data.products.page_info?.total_pages || 1);
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
       }
       console.error('Không thể tải danh sách sản phẩm nổi bật:', error);
-
-      const fallback = getFallbackProducts({
-        search: searchQuery,
-        page,
-        pageSize: PAGE_SIZE,
-      });
-
-      setProducts((prev) => {
-        const merged = append ? [...prev, ...fallback.items] : fallback.items;
-        const deduped = merged.filter(
-          (item: Product, index: number, array: Product[]) =>
-            array.findIndex((p: Product) => p.id === item.id) === index
-        );
-
-        return sortProductsForHome(deduped, shuffleSeed, prioritizePhones);
-      });
-      setCurrentPage(fallback.currentPage);
-      setTotalPages(fallback.totalPages);
+      setProducts([]);
+      setCurrentPage(1);
+      setTotalPages(1);
     } finally {
       if (requestControllerRef.current === controller) {
         setLoading(false);
         setLoadingMore(false);
       }
     }
-  }, [prioritizePhones, searchQuery, shuffleSeed]);
+  }, [isSearching, searchQuery, shuffleSeed]);
 
   useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
     setCurrentPage(1);
     loadProducts(1, false);
 
@@ -233,9 +143,16 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
   }, [searchQuery, loadProducts]);
 
   const handleLoadMore = () => {
+    if (!isSearching) {
+      setVisibleCount((previous) => Math.min(previous + PAGE_SIZE, products.length));
+      return;
+    }
+
     if (loadingMore || currentPage >= totalPages) return;
     loadProducts(currentPage + 1, true);
   };
+
+  const displayedProducts = isSearching ? products : products.slice(0, visibleCount);
 
   if (loading) {
     return (
@@ -245,7 +162,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
     );
   }
 
-  if (!products.length) {
+  if (!displayedProducts.length) {
     return (
       <div className="text-center py-20 text-gray-500">
         <p className="text-lg">
@@ -261,8 +178,9 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
   return (
     <div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {products.map((product) => {
-          const imageUrl = getPrimaryProductImageUrl(product);
+        {displayedProducts.map((product) => {
+          const resolvedImageUrl = product.image?.url ? getPrimaryProductImageUrl(product) : '';
+          const imageUrl = resolvedImageUrl.includes('/images/placeholder.svg') ? '' : resolvedImageUrl;
           const productUrl = buildProductPath(product);
 
           return (
@@ -273,22 +191,19 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
             >
               <div className="card hover:shadow-lg transition-shadow bg-white rounded-lg overflow-hidden border border-gray-100 flex flex-col h-full">
                 <div className="aspect-square bg-gray-50 relative overflow-hidden p-4">
-                  {product.image?.url ? (
+                  {imageUrl ? (
                     <img
                       src={imageUrl}
                       alt={product.name}
                       className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                       loading="lazy"
                       onError={(event) => {
-                        const target = event.currentTarget;
-                        if (!target.src.endsWith('/images/placeholder.svg')) {
-                          target.src = '/images/placeholder.svg';
-                        }
+                        event.currentTarget.style.visibility = 'hidden';
                       }}
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      <span className="text-4xl">📱</span>
+                    <div className="w-full h-full flex items-center justify-center text-xs text-gray-400 text-center px-2">
+                      Không có ảnh sản phẩm
                     </div>
                   )}
                 </div>
@@ -323,7 +238,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
         })}
       </div>
 
-      {currentPage < totalPages && (
+      {((isSearching && currentPage < totalPages) || (!isSearching && displayedProducts.length < products.length)) && (
         <div className="mt-8 text-center">
           <button
             type="button"

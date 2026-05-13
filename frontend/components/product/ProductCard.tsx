@@ -97,10 +97,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
             loading="lazy"
             onError={(event) => {
-              const target = event.currentTarget;
-              if (!target.src.endsWith('/images/placeholder.svg')) {
-                target.src = '/images/placeholder.svg';
-              }
+              event.currentTarget.style.visibility = 'hidden';
             }}
           />
           {!inStock && (

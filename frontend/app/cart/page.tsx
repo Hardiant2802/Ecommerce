@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, useCart } from '@/lib/hooks';
@@ -142,11 +142,12 @@ export default function CartPage() {
   const { isAuthenticated, loading: authLoading, user } = useAuth();
   const { cart, updateQuantity, removeItem, refreshCart, loading: cartLoading } = useCart();
   const router = useRouter();
-  const [updatingItemIds, setUpdatingItemIds] = useState<Record<string, boolean>>({});
+  const [updatingItemIds, setUpdatingItemIds] = useState<Record<string, number>>({});
   const [repurchasingSku, setRepurchasingSku] = useState<string | null>(null);
   const [repurchaseError, setRepurchaseError] = useState<string | null>(null);
   const [purchasedOrders, setPurchasedOrders] = useState<InternalOrder[]>([]);
   const [loadingPurchased, setLoadingPurchased] = useState(false);
+  const pendingCartSyncHandledRef = useRef(false);
 
   const safeCartItems = useMemo(() => {
     const items = Array.isArray(cart?.items) ? cart.items : [];
@@ -269,14 +270,28 @@ export default function CartPage() {
   }, [authLoading, isAuthenticated, refreshCart]);
 
   useEffect(() => {
+    if (pendingCartSyncHandledRef.current) {
+      return;
+    }
+
     if (authLoading || cartLoading || !isAuthenticated || !cart) {
       return;
     }
 
     const pending = readPendingCartSync();
     if (!pending) {
+      pendingCartSyncHandledRef.current = true;
       return;
     }
+
+    const pendingAgeMs = Date.now() - Math.max(0, pending.savedAt || 0);
+    if (pendingAgeMs > 15 * 60 * 1000) {
+      clearPendingCartSync();
+      pendingCartSyncHandledRef.current = true;
+      return;
+    }
+
+    pendingCartSyncHandledRef.current = true;
 
     let cancelled = false;
     const applyPendingSync = async () => {
@@ -359,15 +374,30 @@ export default function CartPage() {
   }
 
   const handleUpdateQuantity = async (id: string, quantity: number) => {
-    void updateQuantity(id, quantity).catch((error) => {
+    setUpdatingItemIds((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+    try {
+      await updateQuantity(id, quantity);
+    } catch (error) {
       console.error('Không thể cập nhật số lượng:', error);
-    });
+      throw error;
+    } finally {
+      setUpdatingItemIds((prev) => {
+        const next = { ...prev };
+        const currentCount = next[id] || 0;
+        if (currentCount <= 1) {
+          delete next[id];
+        } else {
+          next[id] = currentCount - 1;
+        }
+        return next;
+      });
+    }
   };
 
   const handleRemove = async (id: string) => {
     if (!confirm('Bạn có chắc muốn xóa sản phẩm này không?')) return;
 
-    setUpdatingItemIds((prev) => ({ ...prev, [id]: true }));
+    setUpdatingItemIds((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     try {
       await removeItem(id);
     } catch (error) {
@@ -375,7 +405,12 @@ export default function CartPage() {
     } finally {
       setUpdatingItemIds((prev) => {
         const next = { ...prev };
-        delete next[id];
+        const currentCount = next[id] || 0;
+        if (currentCount <= 1) {
+          delete next[id];
+        } else {
+          next[id] = currentCount - 1;
+        }
         return next;
       });
     }
@@ -509,7 +544,7 @@ export default function CartPage() {
                     onUpdateQuantity={handleUpdateQuantity}
                     onRemove={handleRemove}
                     onCheckout={handleCheckout}
-                    updating={!!updatingItemIds[item.id]}
+                    updating={(updatingItemIds[item.id] || 0) > 0}
                   />
                 );
               })}

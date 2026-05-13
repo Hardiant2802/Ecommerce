@@ -43,7 +43,7 @@ services:
 
   redis:
     healthcheck:
-      test: "redis-cli ping || exit 1"
+      test: "redis-cli ROLE | head -n 1 | grep -q '^master$' || exit 1"
       interval: 5s
       timeout: 5s
       retries: 20

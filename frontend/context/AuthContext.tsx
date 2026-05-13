@@ -29,28 +29,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const formatGraphqlError = (error: unknown): string => {
     if (!(error instanceof Error)) {
-      return 'Unexpected error. Please try again.';
+      return 'Đã xảy ra lỗi không mong muốn. Vui lòng thử lại.';
     }
 
     const message = error.message.toLowerCase();
 
     if (message.includes('graphql error occurred')) {
-      return 'Request failed. Please try again.';
+      return 'Yêu cầu không thành công. Vui lòng thử lại.';
     }
     if (message.includes('invalid login or password')) {
-      return 'Invalid email or password.';
+      return 'Email hoặc mật khẩu không đúng.';
+    }
+    if (message.includes('account sign-in was incorrect')) {
+      return 'Email hoặc mật khẩu không đúng.';
+    }
+    if (message.includes('internal server error')) {
+      return 'Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút.';
     }
     if (message.includes('already exists')) {
-      return 'An account with this email already exists.';
+      return 'Email này đã được đăng ký.';
     }
     if (message.includes('network') || message.includes('fetch')) {
-      return 'Cannot connect to Magento. Check backend and try again.';
+      return 'Không thể kết nối tới Magento. Vui lòng kiểm tra hệ thống và thử lại.';
     }
     if (message.includes('http error 5')) {
-      return 'Magento service is unavailable. Please try again later.';
+      return 'Dịch vụ Magento đang tạm thời không khả dụng. Vui lòng thử lại sau.';
     }
 
-    return error.message;
+    return 'Đăng nhập không thành công. Vui lòng thử lại.';
   };
 
   const loadCustomer = async (customerToken: string): Promise<User> => {
@@ -109,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const newToken = data.generateCustomerToken.token;
       if (!newToken) {
-        throw new Error('Login failed. Missing customer token.');
+        throw new Error('Đăng nhập thất bại do thiếu mã xác thực khách hàng.');
       }
 
       setToken(newToken);

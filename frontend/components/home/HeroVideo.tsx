@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface VideoItem {
   id: string;
@@ -15,24 +15,29 @@ interface LatestVideosApiResponse {
   };
 }
 
-const VIDEO_LIBRARY: VideoItem[] = [
-  { id: 'VoBBKzE1O1s', title: 'iPhone 17 Pro Max', banner: 'https://img.youtube.com/vi/VoBBKzE1O1s/maxresdefault.jpg' },
-  { id: 'y2bqmnB75Rk', title: 'Samsung Galaxy S26 Ultra', banner: 'https://img.youtube.com/vi/y2bqmnB75Rk/maxresdefault.jpg' },
-  { id: 'vGRbugSOdmw', title: 'Xiaomi 17 Ultra', banner: 'https://img.youtube.com/vi/vGRbugSOdmw/maxresdefault.jpg' },
-  { id: 'JkRXhe3KaPE', title: 'OnePlus 13 Review', banner: 'https://img.youtube.com/vi/JkRXhe3KaPE/maxresdefault.jpg' },
-];
-
 const HERO_ITEM_LIMIT = 12;
-const AUTO_ROTATE_MS = 5500;
-const FETCH_REFRESH_MS = 15 * 60 * 1000;
-const SWIPE_MS = 520;
-const SWIPE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const HOUR_REFRESH_MS = 60 * 60 * 1000;
+const BANNER_ROTATE_MS = 5_000;
+const BANNER_SLIDE_MS = 1400;
+const BANNER_SWIPE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+
+function getCurrentHourSlotKey(date: Date = new Date()): string {
+  const slotTime = new Date(date);
+  slotTime.setMinutes(0, 0, 0);
+  return slotTime.toISOString().slice(0, 13);
+}
+
+function getMsUntilNextHour(date: Date = new Date()): number {
+  const nextHour = new Date(date);
+  nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+  return Math.max(1000, nextHour.getTime() - date.getTime());
+}
 
 function normalizeVideos(input: VideoItem[]): VideoItem[] {
   const seen = new Set<string>();
   return input
     .filter((video) => {
-      if (!video?.id || seen.has(video.id)) {
+      if (!video?.id || !video?.banner?.trim() || seen.has(video.id)) {
         return false;
       }
       seen.add(video.id);
@@ -40,41 +45,38 @@ function normalizeVideos(input: VideoItem[]): VideoItem[] {
     })
     .map((video) => ({
       ...video,
-      banner: video.banner || `https://img.youtube.com/vi/${video.id}/maxresdefault.jpg`,
+      banner: video.banner.trim(),
     }));
 }
 
 export default function HeroVideo() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [bannerVideoId, setBannerVideoId] = useState<string | null>(null);
+  const [pendingBannerVideoId, setPendingBannerVideoId] = useState<string | null>(null);
+  const [isBannerSliding, setIsBannerSliding] = useState(false);
+  const [isBannerSlideActive, setIsBannerSlideActive] = useState(false);
+  const [bannerSlideDirection, setBannerSlideDirection] = useState<1 | -1>(1);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [isPlayerLoading, setIsPlayerLoading] = useState(true);
-  const [isBannerLoading, setIsBannerLoading] = useState(true);
+  const [isBannerVisible, setIsBannerVisible] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [thumbnailLoading, setThumbnailLoading] = useState<Record<string, boolean>>({});
-  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
-  const [isSwiping, setIsSwiping] = useState(false);
-  const [swipeDirection, setSwipeDirection] = useState<1 | -1>(1);
-  const activeIndexRef = useRef(0);
-  const swipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const swipeRafRef = useRef<number | null>(null);
+  const [bannerLoading, setBannerLoading] = useState<Record<string, boolean>>({});
+  const pendingBannerIdRef = useRef<string | null>(null);
 
   const visibleVideos = useMemo(
     () => normalizeVideos(videos).slice(0, HERO_ITEM_LIMIT),
     [videos]
   );
 
-  const activeVideo = visibleVideos[activeIndex] || visibleVideos[0] || VIDEO_LIBRARY[0];
   const selectedVideo =
-    visibleVideos.find((video) => video.id === selectedVideoId) ||
-    visibleVideos[0] ||
-    VIDEO_LIBRARY[0];
-  const nextVideo =
-    pendingIndex !== null
-      ? visibleVideos[pendingIndex] || activeVideo
-      : activeVideo;
-  const highlightedVideoId = selectedVideo.id;
-  const swipeTransition = `transform ${SWIPE_MS}ms ${SWIPE_EASING}`;
+    visibleVideos.find((video) => video.id === selectedVideoId) || visibleVideos[0] || null;
+  const activeBannerVideo =
+    visibleVideos.find((video) => video.id === bannerVideoId) || visibleVideos[0] || null;
+  const pendingBannerVideo =
+    visibleVideos.find((video) => video.id === pendingBannerVideoId) || null;
+  const highlightedVideoId = selectedVideo?.id || '';
 
   useEffect(() => {
     setThumbnailLoading((previous) => {
@@ -84,15 +86,41 @@ export default function HeroVideo() {
       }
       return next;
     });
-  }, [visibleVideos]);
 
-  useEffect(() => {
-    setIsPlayerLoading(true);
-  }, [selectedVideo.id]);
+    setBannerLoading((previous) => {
+      const next: Record<string, boolean> = {};
+      for (const video of visibleVideos) {
+        next[video.id] = previous[video.id] ?? true;
+      }
+      return next;
+    });
+
+    for (const video of visibleVideos) {
+      const preload = new Image();
+      preload.src = video.banner;
+      preload.onload = () => {
+        setBannerLoading((current) => ({
+          ...current,
+          [video.id]: false,
+        }));
+      };
+      preload.onerror = () => {
+        setBannerLoading((current) => ({
+          ...current,
+          [video.id]: false,
+        }));
+      };
+    }
+  }, [visibleVideos]);
 
   useEffect(() => {
     if (visibleVideos.length === 0) {
       setSelectedVideoId(null);
+      setBannerVideoId(null);
+      setPendingBannerVideoId(null);
+      setIsBannerSliding(false);
+      setIsBannerSlideActive(false);
+      pendingBannerIdRef.current = null;
       return;
     }
 
@@ -102,98 +130,122 @@ export default function HeroVideo() {
       }
       return visibleVideos[0].id;
     });
+    setBannerVideoId((current) => {
+      if (current && visibleVideos.some((video) => video.id === current)) {
+        return current;
+      }
+      return visibleVideos[0].id;
+    });
+    setPendingBannerVideoId((current) => {
+      if (current && visibleVideos.some((video) => video.id === current)) {
+        return current;
+      }
+      return null;
+    });
     setIsPlayerLoading(true);
   }, [visibleVideos]);
 
   useEffect(() => {
-    activeIndexRef.current = activeIndex;
-  }, [activeIndex]);
-
-  const switchToIndex = useCallback((nextIndex: number) => {
-    if (visibleVideos.length === 0) {
-      return;
-    }
-    if (pendingIndex !== null) {
+    if (!activeBannerVideo?.id || !pendingBannerVideoId || pendingBannerVideoId === activeBannerVideo.id) {
+      pendingBannerIdRef.current = null;
+      setIsBannerSliding(false);
+      setIsBannerSlideActive(false);
       return;
     }
 
-    const normalized = ((nextIndex % visibleVideos.length) + visibleVideos.length) % visibleVideos.length;
-    if (normalized === activeIndexRef.current) {
+    if (pendingBannerIdRef.current === pendingBannerVideoId) {
       return;
     }
 
-    const current = activeIndexRef.current;
-    const forwardDistance = (normalized - current + visibleVideos.length) % visibleVideos.length;
-    const backwardDistance = (current - normalized + visibleVideos.length) % visibleVideos.length;
+    pendingBannerIdRef.current = pendingBannerVideoId;
 
-    if (swipeTimerRef.current) {
-      clearTimeout(swipeTimerRef.current);
-      swipeTimerRef.current = null;
-    }
-    if (swipeRafRef.current !== null) {
-      cancelAnimationFrame(swipeRafRef.current);
-      swipeRafRef.current = null;
-    }
+    const previousIndex = visibleVideos.findIndex((video) => video.id === activeBannerVideo.id);
+    const nextIndex = visibleVideos.findIndex((video) => video.id === pendingBannerVideoId);
+    const direction: 1 | -1 = (previousIndex >= 0 && nextIndex >= 0 && nextIndex < previousIndex) ? -1 : 1;
 
-    setSwipeDirection(forwardDistance <= backwardDistance ? 1 : -1);
-    setPendingIndex(normalized);
-    setIsSwiping(false);
+    setBannerSlideDirection(direction);
+    setIsBannerSliding(true);
+    setIsBannerSlideActive(false);
 
-    swipeRafRef.current = requestAnimationFrame(() => {
-      setIsSwiping(true);
+    const frame = requestAnimationFrame(() => {
+      setIsBannerSlideActive(true);
     });
 
-    swipeTimerRef.current = setTimeout(() => {
-      activeIndexRef.current = normalized;
-      setActiveIndex(normalized);
-      setPendingIndex(null);
-      setIsSwiping(false);
-      swipeRafRef.current = null;
-    }, SWIPE_MS + 20);
-  }, [pendingIndex, visibleVideos.length]);
-
-  useEffect(() => {
-    if (activeIndex < visibleVideos.length) {
-      return;
-    }
-    activeIndexRef.current = 0;
-    setActiveIndex(0);
-    setPendingIndex(null);
-    setIsSwiping(false);
-  }, [activeIndex, visibleVideos.length]);
-
-  useEffect(() => {
-    if (visibleVideos.length <= 1 || pendingIndex !== null) {
-      return;
-    }
-
     const timer = setTimeout(() => {
-      const nextIndex = (activeIndexRef.current + 1) % visibleVideos.length;
-      switchToIndex(nextIndex);
-    }, AUTO_ROTATE_MS);
+      setBannerVideoId(pendingBannerVideoId);
+      setPendingBannerVideoId(null);
+      setIsBannerSliding(false);
+      setIsBannerSlideActive(false);
+      pendingBannerIdRef.current = null;
+    }, BANNER_SLIDE_MS);
 
-    return () => clearTimeout(timer);
-  }, [activeIndex, pendingIndex, switchToIndex, visibleVideos.length]);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [activeBannerVideo?.id, pendingBannerVideoId, visibleVideos]);
 
   useEffect(() => {
+    if (activeBannerVideo?.id && !isBannerVisible) {
+      const frame = requestAnimationFrame(() => {
+        setIsBannerVisible(true);
+      });
+
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    }
+  }, [activeBannerVideo?.id, isBannerVisible]);
+
+  useEffect(() => {
+    if (selectedVideo?.id) {
+      setIsPlayerLoading(true);
+    }
+  }, [selectedVideo?.id]);
+
+  useEffect(() => {
+    if (visibleVideos.length <= 1) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setPendingBannerVideoId((currentPending) => {
+        if (currentPending) {
+          return currentPending;
+        }
+
+        const baseVideoId = bannerVideoId || visibleVideos[0]?.id;
+        if (!baseVideoId) {
+          return null;
+        }
+
+        const currentIndex = visibleVideos.findIndex((video) => video.id === baseVideoId);
+        const nextIndex = currentIndex >= 0
+          ? (currentIndex + 1) % visibleVideos.length
+          : 0;
+
+        const nextId = visibleVideos[nextIndex].id;
+        return nextId === baseVideoId ? null : nextId;
+      });
+    }, BANNER_ROTATE_MS);
+
     return () => {
-      if (swipeTimerRef.current) {
-        clearTimeout(swipeTimerRef.current);
-      }
-      if (swipeRafRef.current !== null) {
-        cancelAnimationFrame(swipeRafRef.current);
-      }
+      clearInterval(timer);
     };
-  }, []);
+  }, [bannerVideoId, visibleVideos]);
 
   useEffect(() => {
     let cancelled = false;
+    let nextHourTimer: ReturnType<typeof setTimeout> | null = null;
+    let hourlyRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
     const fetchLatestVideos = async () => {
+      setLibraryError(null);
       try {
-        const response = await fetch('/api/videos/latest?limit=12', { cache: 'no-store' });
+        const slotKey = getCurrentHourSlotKey();
+        const response = await fetch(`/api/videos/latest?limit=12&slot=${encodeURIComponent(slotKey)}`, { cache: 'no-store' });
         if (!response.ok) {
-          return;
+          throw new Error(`HTTP ${response.status}`);
         }
 
         const payload: LatestVideosApiResponse = await response.json();
@@ -201,12 +253,16 @@ export default function HeroVideo() {
         const normalized = normalizeVideos(remoteVideos);
 
         if (!cancelled) {
-          setVideos(normalized.length > 0 ? normalized : VIDEO_LIBRARY);
+          if (normalized.length > 0) {
+            setVideos(normalized);
+          } else {
+            setLibraryError('Chưa có video YouTube mới hợp lệ, sẽ tự cập nhật khi có dữ liệu.');
+          }
         }
-      } catch {
-        // Keep current list when API is temporarily unavailable.
+      } catch (error) {
         if (!cancelled) {
-          setVideos(VIDEO_LIBRARY);
+          setVideos((previous) => previous);
+          setLibraryError(error instanceof Error ? error.message : 'Không thể tải video YouTube.');
         }
       } finally {
         if (!cancelled) {
@@ -215,12 +271,27 @@ export default function HeroVideo() {
       }
     };
 
-    fetchLatestVideos();
-    const refreshTimer = setInterval(fetchLatestVideos, FETCH_REFRESH_MS);
+    const scheduleMinuteZeroRefresh = () => {
+      const waitMs = getMsUntilNextHour();
+      nextHourTimer = setTimeout(() => {
+        void fetchLatestVideos();
+        hourlyRefreshTimer = setInterval(() => {
+          void fetchLatestVideos();
+        }, HOUR_REFRESH_MS);
+      }, waitMs);
+    };
+
+    void fetchLatestVideos();
+    scheduleMinuteZeroRefresh();
 
     return () => {
       cancelled = true;
-      clearInterval(refreshTimer);
+      if (nextHourTimer) {
+        clearTimeout(nextHourTimer);
+      }
+      if (hourlyRefreshTimer) {
+        clearInterval(hourlyRefreshTimer);
+      }
     };
   }, []);
 
@@ -229,54 +300,73 @@ export default function HeroVideo() {
       {/* Cột Trái: Banner */}
       <div className="w-full lg:w-[65%] h-[200px] sm:h-[300px] lg:h-full rounded-xl overflow-hidden shadow-sm bg-gray-100">
         <div className="relative w-full h-full">
-          {(isLibraryLoading || isBannerLoading) && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/35 text-white">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
-                Đang tải ảnh...
-              </div>
-            </div>
-          )}
-          <img
-            src={activeVideo.banner}
-            alt={activeVideo.title}
-              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${(isLibraryLoading || isBannerLoading) ? 'opacity-0' : 'opacity-100'}`}
-            style={{
-              transform:
-                pendingIndex !== null && isSwiping
-                  ? swipeDirection === 1
-                    ? 'translate3d(-100%, 0, 0)'
-                    : 'translate3d(100%, 0, 0)'
-                  : 'translate3d(0, 0, 0)',
-              transition: pendingIndex !== null ? swipeTransition : 'none',
-              willChange: pendingIndex !== null ? 'transform' : 'auto',
-            }}
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = '/images/xiaomi17-pro.jpg';
-              setIsBannerLoading(false);
-            }}
-            onLoad={() => setIsBannerLoading(false)}
-          />
-
-          {pendingIndex !== null && (
+          {activeBannerVideo && (
             <img
-              src={nextVideo.banner}
-              alt={nextVideo.title}
+              src={activeBannerVideo.banner}
+              alt={activeBannerVideo.title}
               className="absolute inset-0 w-full h-full object-cover"
               style={{
-                transform:
-                  isSwiping
-                    ? 'translate3d(0, 0, 0)'
-                    : swipeDirection === 1
-                      ? 'translate3d(100%, 0, 0)'
-                      : 'translate3d(-100%, 0, 0)',
-                transition: swipeTransition,
-                willChange: 'transform',
-              }}
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = '/images/xiaomi17-pro.jpg';
+                transform: isBannerSliding
+                  ? (isBannerSlideActive
+                    ? `translate3d(${bannerSlideDirection * -100}%, 0, 0)`
+                    : 'translate3d(0, 0, 0)')
+                  : 'translate3d(0, 0, 0)',
+                transition: isBannerSliding ? `transform ${BANNER_SLIDE_MS}ms ${BANNER_SWIPE_EASING}` : 'none',
+                willChange: isBannerSliding ? 'transform' : 'auto',
               }}
             />
+          )}
+          {pendingBannerVideo ? (
+            <img
+              src={pendingBannerVideo.banner}
+              alt={pendingBannerVideo.title}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${(isLibraryLoading || !isBannerVisible || bannerLoading[pendingBannerVideo.id]) ? 'opacity-0' : 'opacity-100'}`}
+              style={{
+                transform: isBannerSliding
+                  ? (isBannerSlideActive
+                    ? 'translate3d(0, 0, 0)'
+                    : `translate3d(${bannerSlideDirection * 100}%, 0, 0)`)
+                  : `translate3d(${bannerSlideDirection * 100}%, 0, 0)`,
+                transition: isBannerSliding ? `transform ${BANNER_SLIDE_MS}ms ${BANNER_SWIPE_EASING}` : 'none',
+                willChange: isBannerSliding ? 'transform' : 'auto',
+              }}
+              onLoad={() => {
+                setBannerLoading((current) => ({
+                  ...current,
+                  [pendingBannerVideo.id]: false,
+                }));
+              }}
+              onError={() => {
+                setBannerLoading((current) => ({
+                  ...current,
+                  [pendingBannerVideo.id]: false,
+                }));
+              }}
+            />
+          ) : !isLibraryLoading && activeBannerVideo ? (
+            <img
+              src={activeBannerVideo.banner}
+              alt={activeBannerVideo.title}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${(isLibraryLoading || !isBannerVisible || bannerLoading[activeBannerVideo.id]) ? 'opacity-0' : 'opacity-100'}`}
+              onLoad={() => {
+                setBannerLoading((current) => ({
+                  ...current,
+                  [activeBannerVideo.id]: false,
+                }));
+              }}
+              onError={() => {
+                setBannerLoading((current) => ({
+                  ...current,
+                  [activeBannerVideo.id]: false,
+                }));
+              }}
+            />
+          ) : (
+            !isLibraryLoading && (
+              <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-gray-600">
+                {libraryError || 'Không có video YouTube để hiển thị'}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -284,7 +374,7 @@ export default function HeroVideo() {
       {/* Cột Phải: Video Area */}
       <div className="w-full lg:w-[35%] flex flex-col gap-2 h-[400px] lg:h-full">
         <div className="flex-1 rounded-xl overflow-hidden relative shadow-sm bg-black border border-gray-100">
-          {(isLibraryLoading || isPlayerLoading) && (
+          {selectedVideo && (isLibraryLoading || isPlayerLoading) && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/65 text-white">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
@@ -292,14 +382,22 @@ export default function HeroVideo() {
               </div>
             </div>
           )}
-          <iframe
-            className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${(isLibraryLoading || isPlayerLoading) ? 'opacity-0' : 'opacity-100'}`}
-            src={`https://www.youtube-nocookie.com/embed/${selectedVideo.id}?rel=0&modestbranding=1&playsinline=1`}
-            title={selectedVideo.title}
-            frameBorder="0"
-            allowFullScreen
-            onLoad={() => setIsPlayerLoading(false)}
-          />
+          {selectedVideo ? (
+            <iframe
+              className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${(isLibraryLoading || isPlayerLoading) ? 'opacity-0' : 'opacity-100'}`}
+              src={`https://www.youtube-nocookie.com/embed/${selectedVideo.id}?rel=0&modestbranding=1&playsinline=1`}
+              title={selectedVideo.title}
+              frameBorder="0"
+              allowFullScreen
+              onLoad={() => setIsPlayerLoading(false)}
+            />
+          ) : (
+            !isLibraryLoading && (
+              <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-gray-300">
+                Không thể tải video YouTube.
+              </div>
+            )
+          )}
         </div>
 
         {/* Thumbnails */}
@@ -331,7 +429,7 @@ export default function HeroVideo() {
                   </div>
                 )}
                 <img
-                  src={`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`}
+                  src={video.banner}
                   className={`w-full h-full object-cover group-hover:opacity-80 transition-opacity ${thumbnailLoading[video.id] ? 'opacity-0' : 'opacity-100'}`}
                   alt={video.title}
                   onLoad={() => {
@@ -340,8 +438,7 @@ export default function HeroVideo() {
                       [video.id]: false,
                     }));
                   }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/images/placeholder.svg';
+                  onError={() => {
                     setThumbnailLoading((previous) => ({
                       ...previous,
                       [video.id]: false,

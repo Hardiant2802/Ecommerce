@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useCart, useAuth } from '@/lib/hooks';
@@ -8,6 +8,7 @@ import { formatPrice } from '@/lib/utils/formatters';
 import QRCode from 'react-qr-code';
 
 type PaymentMethod = 'cod' | 'banking' | 'momo';
+type SingleCheckoutMode = 'single' | 'total';
 type ShippingCarrier = 'ghn' | 'vtp';
 
 interface GHNProvince { ProvinceID: number; ProvinceName: string; }
@@ -18,22 +19,289 @@ interface VTPProvince { PROVINCE_ID: number; PROVINCE_NAME: string; }
 interface VTPDistrict { DISTRICT_ID: number; DISTRICT_NAME: string; }
 interface VTPWard { WARDS_ID: number; WARDS_NAME: string; }
 
+interface InternalOrderItemPayload {
+  sku: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  rowTotal: number;
+}
+
+interface InternalOrderSummary {
+  id: string;
+  paymentCode: string;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  amount: number;
+  currency: string;
+  createdAt?: number;
+  updatedAt?: number;
+  sepayTransactionId?: string;
+  lastPaymentAmountReceived?: number;
+  lastPaymentCheckedAt?: number;
+  paymentStatusMessage?: string;
+  qrUrl?: string;
+  bankName?: string;
+  bankBin?: string;
+  bankAccountNo?: string;
+  bankAccountName?: string;
+  magentoSyncStatus?: 'not_started' | 'queued' | 'success' | 'failed';
+}
+
+const BANKING_ORDER_STORAGE_KEY = 'ahphone_checkout_banking_order_id';
+const CART_SYNC_STORAGE_KEY = 'ahphone_checkout_pending_cart_sync';
+const QR_EXPIRE_MS = 10 * 60 * 1000;
+
+interface StoredBankingOrder {
+  orderId: string;
+  checkoutFingerprint: string;
+  savedAt: number;
+}
+
+interface PendingCartSync {
+  orderId: string;
+  itemId?: string;
+  itemUid?: string;
+  sku: string;
+  paidUnits: number;
+  checkoutMode?: SingleCheckoutMode;
+  expectedQuantityBeforePay?: number;
+  savedAt: number;
+}
+
+interface CheckoutItemPriceSource {
+  prices?: {
+    price?: {
+      value?: number;
+    };
+  };
+  product?: {
+    price_range?: {
+      minimum_price?: {
+        final_price?: {
+          value?: number;
+        };
+        regular_price?: {
+          value?: number;
+        };
+      };
+    };
+  };
+}
+
+function resolveCheckoutUnitPrice(item: CheckoutItemPriceSource): number {
+  const fromCartPrice = Number(item?.prices?.price?.value);
+  if (Number.isFinite(fromCartPrice) && fromCartPrice >= 0) {
+    return fromCartPrice;
+  }
+
+  const fromFinalPrice = Number(item?.product?.price_range?.minimum_price?.final_price?.value);
+  if (Number.isFinite(fromFinalPrice) && fromFinalPrice >= 0) {
+    return fromFinalPrice;
+  }
+
+  const fromRegularPrice = Number(item?.product?.price_range?.minimum_price?.regular_price?.value);
+  if (Number.isFinite(fromRegularPrice) && fromRegularPrice >= 0) {
+    return fromRegularPrice;
+  }
+
+  return 0;
+}
+
+function getSessionStorageSafe(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredBankingOrder(): StoredBankingOrder | null {
+  const storage = getSessionStorageSafe();
+  if (!storage) return null;
+
+  const raw = storage.getItem(BANKING_ORDER_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredBankingOrder>;
+    const orderId = String(parsed.orderId || '').trim();
+    if (!orderId) return null;
+
+    return {
+      orderId,
+      checkoutFingerprint: String(parsed.checkoutFingerprint || '').trim(),
+      savedAt: Number(parsed.savedAt || 0),
+    };
+  } catch {
+    const legacyOrderId = raw.trim();
+    if (!legacyOrderId) return null;
+    return {
+      orderId: legacyOrderId,
+      checkoutFingerprint: '',
+      savedAt: 0,
+    };
+  }
+}
+
+function writeStoredBankingOrder(orderId: string, checkoutFingerprint: string): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+
+  const payload: StoredBankingOrder = {
+    orderId,
+    checkoutFingerprint,
+    savedAt: Date.now(),
+  };
+
+  storage.setItem(BANKING_ORDER_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function clearStoredBankingOrder(): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  storage.removeItem(BANKING_ORDER_STORAGE_KEY);
+}
+
+function writePendingCartSync(payload: PendingCartSync): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  storage.setItem(CART_SYNC_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function readPendingCartSync(): PendingCartSync | null {
+  const storage = getSessionStorageSafe();
+  if (!storage) return null;
+
+  const raw = storage.getItem(CART_SYNC_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingCartSync>;
+    const orderId = String(parsed.orderId || '').trim();
+    const sku = String(parsed.sku || '').trim();
+    if (!orderId || !sku) return null;
+
+    return {
+      orderId,
+      itemId: String(parsed.itemId || '').trim() || undefined,
+      itemUid: String(parsed.itemUid || '').trim() || undefined,
+      sku,
+      paidUnits: Math.max(1, Math.floor(Number(parsed.paidUnits || 1))),
+      checkoutMode: parsed.checkoutMode === 'total' ? 'total' : 'single',
+      expectedQuantityBeforePay: Math.max(0, Math.floor(Number(parsed.expectedQuantityBeforePay || 0))),
+      savedAt: Number(parsed.savedAt || 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingCartSync(): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  storage.removeItem(CART_SYNC_STORAGE_KEY);
+}
+
+function formatCountdown(ms: number): string {
+  const safeSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractGhnFee(data: unknown): number | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const payload = data as {
+    data?: {
+      total?: unknown;
+      service_fee?: unknown;
+      total_fee?: unknown;
+    };
+  };
+
+  return (
+    toFiniteNumber(payload.data?.total) ??
+    toFiniteNumber(payload.data?.service_fee) ??
+    toFiniteNumber(payload.data?.total_fee)
+  );
+}
+
+function extractVtpFee(data: unknown): number | null {
+  const list = Array.isArray(data)
+    ? data
+    : (data as { data?: unknown[] })?.data;
+
+  if (!Array.isArray(list) || list.length === 0) {
+    return null;
+  }
+
+  const preferred = list.find((item) => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+
+    return String((item as { MA_DV_CHINH?: unknown }).MA_DV_CHINH || '').toUpperCase() === 'VCN';
+  }) || list[0];
+
+  if (!preferred || typeof preferred !== 'object') {
+    return null;
+  }
+
+  return toFiniteNumber((preferred as { GIA_CUOC?: unknown }).GIA_CUOC);
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const itemId = searchParams.get('itemId');
-  const { cart, loading } = useCart();
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const sku = (searchParams.get('sku') || '').trim();
+  const isSingleProductCheckout = Boolean(itemId || sku);
+  const requestedModeRaw = (searchParams.get('mode') || '').trim().toLowerCase();
+  const singleCheckoutMode: SingleCheckoutMode = requestedModeRaw === 'total' ? 'total' : 'single';
+  const paymentFromQuery = (searchParams.get('payment') || '').trim().toLowerCase();
+  const forceNewOrder = ['1', 'true', 'yes', 'on'].includes((searchParams.get('buyAgain') || '').trim().toLowerCase());
+  const { cart, loading, addToCart, updateQuantity, removeItem, refreshCart } = useCart();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
 
   const [orderNote, setOrderNote] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('banking');
   const [orderPlaced, setOrderPlaced] = useState(false);
-  const [orderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [previewOrderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
+  const orderId = previewOrderId;
   const [momoQR, setMomoQR] = useState<string | null>(null);
   const [momoLoading, setMomoLoading] = useState(false);
   const [momoError, setMomoError] = useState<string | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [shippingOrderCode, setShippingOrderCode] = useState<string | null>(null);
+  const [internalOrder, setInternalOrder] = useState<InternalOrderSummary | null>(null);
+  const [creatingBankingOrder, setCreatingBankingOrder] = useState(false);
+  const [checkingPayment, setCheckingPayment] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [showPaidNotice, setShowPaidNotice] = useState(false);
+  const [copiedField, setCopiedField] = useState<'account' | 'content' | null>(null);
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [switchingCheckoutMode, setSwitchingCheckoutMode] = useState(false);
+  const [ensuringSkuItem, setEnsuringSkuItem] = useState(false);
+  const creatingBankingOrderRef = useRef(false);
+  const createOrderAbortRef = useRef<AbortController | null>(null);
+  const ensureSkuAttemptRef = useRef<string>('');
+  const checkoutScopeRef = useRef<{ fingerprint: string; nonce: number }>({
+    fingerprint: '',
+    nonce: 0,
+  });
+  const internalOrderScopeRef = useRef<string>('');
+  const cartSyncedPaidOrderRef = useRef<string>('');
+  const paymentCheckRequestSeqRef = useRef(0);
 
   // Địa chỉ
   const [fullName, setFullName] = useState('');
@@ -68,11 +336,179 @@ export default function CheckoutPage() {
     momo: 'Ví MoMo',
   };
 
+  const paymentMethodDescription: Record<PaymentMethod, string> = {
+    cod: 'Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.',
+    banking: 'Quét QR và chuyển khoản đúng nội dung để hệ thống đối soát tự động.',
+    momo: 'Thanh toán qua ví MoMo bằng mã QR.',
+  };
+
+  const cartItems = cart?.items || [];
+  const isEmpty = cartItems.length === 0;
+  const checkoutItemsById = itemId
+    ? cartItems.filter((item) => item.id === itemId || item.uid === itemId)
+    : [];
+  const checkoutItems = itemId
+    ? (checkoutItemsById.length > 0
+      ? checkoutItemsById
+      : sku
+        ? cartItems.filter((item) => item.product.sku === sku)
+        : [])
+    : sku
+      ? cartItems.filter((item) => item.product.sku === sku)
+      : cartItems;
+  const singleCheckoutTargetItem = isSingleProductCheckout && checkoutItems.length > 0 ? checkoutItems[0] : null;
+  const allowTotalForSingleItem = Boolean(singleCheckoutTargetItem && singleCheckoutTargetItem.quantity > 1);
+
+  const resolveCheckoutItemQuantity = useCallback((quantity: number): number => {
+    if (!isSingleProductCheckout) {
+      return quantity;
+    }
+
+    if (allowTotalForSingleItem && singleCheckoutMode === 'total') {
+      return Math.max(1, Math.floor(quantity));
+    }
+
+    return 1;
+  }, [allowTotalForSingleItem, isSingleProductCheckout, singleCheckoutMode]);
+
+  const currency = cart?.prices?.subtotal_excluding_tax?.currency || 'VND';
+  const orderTotal = checkoutItems.reduce((sum, item) => {
+    const quantity = resolveCheckoutItemQuantity(item.quantity);
+    const unitPrice = resolveCheckoutUnitPrice(item);
+    return sum + unitPrice * quantity;
+  }, 0);
+  const requiresShippingInfo = paymentMethod === 'cod';
+  const shippingAmount = requiresShippingInfo ? (shippingFee || 0) : 0;
+  const grandTotal = orderTotal + shippingAmount;
+  const formattedTotal = formatPrice(orderTotal, currency);
+  const formattedGrandTotal = formatPrice(grandTotal, currency);
+  const checkoutFingerprint = [
+    itemId || 'all',
+    sku || 'any-sku',
+    currency,
+    Math.round(grandTotal),
+    requiresShippingInfo ? shippingCarrier : 'no-shipping',
+    checkoutItems
+      .map((item) => {
+        const quantity = resolveCheckoutItemQuantity(item.quantity);
+        const unitPrice = resolveCheckoutUnitPrice(item);
+        return `${item.id}:${quantity}:${Math.round(unitPrice)}:${item.product.sku}`;
+      })
+      .join('|'),
+    singleCheckoutMode,
+  ].join('::');
+  const bankName = process.env.NEXT_PUBLIC_BANK_NAME?.trim() || '';
+  const bankAccountNo = process.env.NEXT_PUBLIC_BANK_ACCOUNT_NO || '';
+  const bankAccountName = process.env.NEXT_PUBLIC_BANK_ACCOUNT_NAME?.trim() || 'NGUYEN ANH HUY';
+  const activeOrderId = internalOrder?.id || previewOrderId;
+  const transferContent = (internalOrder?.paymentCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const qrAmount = Math.max(0, Math.round(internalOrder?.amount ?? grandTotal));
+  const resolvedBankName = internalOrder?.bankName?.trim() || bankName;
+  const resolvedBankAccountNo = internalOrder?.bankAccountNo?.trim() || bankAccountNo;
+  const resolvedBankAccountName = bankAccountName;
+  const sepayBankCode = (process.env.NEXT_PUBLIC_SEPAY_BANK_CODE || internalOrder?.bankBin || '').trim();
+  const bankingQrUrl =
+    (internalOrder?.qrUrl || (
+      internalOrder && resolvedBankAccountNo && sepayBankCode
+        ? `https://qr.sepay.vn/img?acc=${encodeURIComponent(resolvedBankAccountNo)}&bank=${encodeURIComponent(sepayBankCode)}&amount=${qrAmount}&des=${encodeURIComponent(transferContent)}`
+        : ''
+    ));
+  const qrCreatedAt = internalOrder?.createdAt || 0;
+  const qrExpireAt = qrCreatedAt > 0 ? qrCreatedAt + QR_EXPIRE_MS : 0;
+  const qrRemainingMs = qrExpireAt > 0 ? Math.max(0, qrExpireAt - countdownNow) : QR_EXPIRE_MS;
+  const qrIsExpired = Boolean(internalOrder && internalOrder.status !== 'paid' && qrExpireAt > 0 && qrRemainingMs <= 0);
+  const qrCountdownText = formatCountdown(qrRemainingMs);
+
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) router.push('/login?redirect=/checkout');
+    if (!authLoading && !isAuthenticated) {
+      router.push('/login?redirect=/checkout');
+    }
   }, [authLoading, isAuthenticated, router]);
 
-  useEffect(() => { setMomoQR(null); setMomoError(null); }, [paymentMethod]);
+  useEffect(() => {
+    if (paymentFromQuery === 'cod') {
+      setPaymentMethod('cod');
+      return;
+    }
+
+    if (paymentFromQuery === 'momo') {
+      setPaymentMethod('momo');
+      return;
+    }
+
+    setPaymentMethod('banking');
+  }, [paymentFromQuery]);
+
+  useEffect(() => {
+    setMomoQR(null);
+    setMomoError(null);
+    setOrderError(null);
+  }, [paymentMethod]);
+
+  useEffect(() => {
+    if (
+      authLoading ||
+      loading ||
+      !isAuthenticated ||
+      !isSingleProductCheckout ||
+      !sku ||
+      itemId ||
+      checkoutItems.length > 0
+    ) {
+      return;
+    }
+
+    if (ensureSkuAttemptRef.current === sku) {
+      return;
+    }
+    ensureSkuAttemptRef.current = sku;
+
+    let cancelled = false;
+    const ensureSkuInCart = async () => {
+      setEnsuringSkuItem(true);
+      try {
+        await addToCart(sku, 1);
+        if (!cancelled) {
+          await refreshCart();
+        }
+      } catch (error) {
+        console.error('Unable to auto-add checkout SKU to cart:', error);
+        if (!cancelled) {
+          setOrderError('Không thể chuẩn bị sản phẩm để thanh toán. Vui lòng thử lại.');
+        }
+      } finally {
+        if (!cancelled) {
+          setEnsuringSkuItem(false);
+        }
+      }
+    };
+
+    void ensureSkuInCart();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    addToCart,
+    authLoading,
+    checkoutItems.length,
+    isAuthenticated,
+    isSingleProductCheckout,
+    itemId,
+    loading,
+    refreshCart,
+    sku,
+  ]);
+
+  const isScopeStale = useCallback((expectedFingerprint: string, expectedNonce: number): boolean => {
+    return checkoutScopeRef.current.fingerprint !== expectedFingerprint || checkoutScopeRef.current.nonce !== expectedNonce;
+  }, []);
+
+  useEffect(() => {
+    checkoutScopeRef.current = {
+      fingerprint: checkoutFingerprint,
+      nonce: checkoutScopeRef.current.nonce + 1,
+    };
+  }, [checkoutFingerprint]);
 
   // Reset fee khi đổi carrier
   useEffect(() => {
@@ -157,6 +593,14 @@ export default function CheckoutPage() {
     }).catch(() => setVtpWards([]));
   }, [vtpDistrict]);
 
+  useEffect(() => {
+    if (!switchingCheckoutMode) {
+      return;
+    }
+
+    setSwitchingCheckoutMode(false);
+  }, [checkoutFingerprint, switchingCheckoutMode]);
+
   // Tính phí GHN
   useEffect(() => {
     if (shippingCarrier !== 'ghn' || !ghnDistrict || !ghnWard) return;
@@ -175,12 +619,7 @@ export default function CheckoutPage() {
         },
       }),
     }).then(r => r.json()).then(data => {
-      // VTP calculate-fee trả về array trực tiếp
-      const list = Array.isArray(data) ? data : (data.data || []);
-      if (list.length > 0) {
-        const vcn = list.find((s: any) => s.MA_DV_CHINH === 'VCN') || list[0];
-        setShippingFee(vcn.GIA_CUOC);
-      } else setShippingFee(null);
+      setShippingFee(extractGhnFee(data));
     }).catch(() => setShippingFee(null)).finally(() => setShippingLoading(false));
   }, [ghnDistrict, ghnWard, shippingCarrier]);
 
@@ -207,11 +646,7 @@ export default function CheckoutPage() {
         },
       }),
     }).then(r => r.json()).then(data => {
-      const list = Array.isArray(data) ? data : [];
-if (list.length > 0) {
-  const vcn = list.find((s: any) => s.MA_DV_CHINH === 'VCN') || list[0];
-  setShippingFee(vcn.GIA_CUOC);
-} else setShippingFee(null);
+      setShippingFee(extractVtpFee(data));
     }).catch(() => setShippingFee(null)).finally(() => setShippingLoading(false));
   }, [vtpProvince, vtpDistrict, shippingCarrier]);
 
@@ -329,7 +764,7 @@ if (list.length > 0) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: Math.round((orderTotal || 0) + (shippingFee || 0)),
+          amount: Math.round(grandTotal || 0),
           orderId,
           orderInfo: `Thanh toán đơn hàng ${orderId}`,
         }),
@@ -341,29 +776,617 @@ if (list.length > 0) {
     finally { setMomoLoading(false); }
   };
 
-  const isAddressComplete = fullName && phone && address && (
-    shippingCarrier === 'ghn'
-      ? (ghnProvince && ghnDistrict && ghnWard)
-      : (vtpProvince && vtpDistrict && vtpWard)
+  const copyText = async (value: string, field: 'account' | 'content') => {
+    if (!value) return;
+    try {
+      if (typeof navigator === 'undefined' || !navigator.clipboard) {
+        return;
+      }
+      await navigator.clipboard.writeText(value);
+      setCopiedField(field);
+      setTimeout(() => {
+        setCopiedField((current) => (current === field ? null : current));
+      }, 1600);
+    } catch (error) {
+      console.error('Copy failed:', error);
+    }
+  };
+
+  const buildSingleCheckoutUrl = useCallback((mode: SingleCheckoutMode): string => {
+    const params = new URLSearchParams();
+    if (itemId) {
+      params.set('itemId', itemId);
+    }
+
+    if (!itemId && sku) {
+      params.set('sku', sku);
+    }
+
+    params.set('payment', paymentMethod);
+    params.set('mode', mode);
+    return `/checkout?${params.toString()}`;
+  }, [itemId, paymentMethod, sku]);
+
+  const handleSwitchSingleCheckoutMode = (mode: SingleCheckoutMode) => {
+    if (!isSingleProductCheckout) {
+      return;
+    }
+
+    if (mode === singleCheckoutMode) {
+      return;
+    }
+
+    createOrderAbortRef.current?.abort();
+    createOrderAbortRef.current = null;
+    creatingBankingOrderRef.current = false;
+    checkoutScopeRef.current = {
+      fingerprint: checkoutScopeRef.current.fingerprint,
+      nonce: checkoutScopeRef.current.nonce + 1,
+    };
+
+    setSwitchingCheckoutMode(true);
+    setOrderPlaced(false);
+    setOrderError(null);
+    setCreatingBankingOrder(false);
+    setInternalOrder(null);
+    setShowPaidNotice(false);
+    clearStoredBankingOrder();
+    router.push(buildSingleCheckoutUrl(mode));
+  };
+
+  const buildItemsPayload = useCallback((): InternalOrderItemPayload[] => {
+    return checkoutItems.map((item) => {
+      const quantity = resolveCheckoutItemQuantity(item.quantity);
+      const unitPrice = resolveCheckoutUnitPrice(item);
+
+      return {
+        sku: item.product.sku,
+        name: item.product.name,
+        quantity,
+        unitPrice,
+        rowTotal: unitPrice * quantity,
+      };
+    });
+  }, [checkoutItems, resolveCheckoutItemQuantity]);
+
+  const refreshOrderStatus = useCallback(async (orderIdToFetch: string): Promise<InternalOrderSummary | null> => {
+    const expectedFingerprint = checkoutFingerprint;
+    const expectedNonce = checkoutScopeRef.current.nonce;
+
+    try {
+      const response = await fetch(`/api/orders/internal/${encodeURIComponent(orderIdToFetch)}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      if (!response.ok) return null;
+      const data = (await response.json()) as { order?: InternalOrderSummary };
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
+      if (data.order) {
+        setInternalOrder((previous) => {
+          if (!previous) return data.order as InternalOrderSummary;
+          if (previous.status === 'paid' && data.order?.status !== 'paid') {
+            return previous;
+          }
+
+          const previousUpdatedAt = Number(previous.updatedAt || 0);
+          const nextUpdatedAt = Number(data.order?.updatedAt || 0);
+          if (
+            previousUpdatedAt > 0 &&
+            nextUpdatedAt > 0 &&
+            nextUpdatedAt < previousUpdatedAt &&
+            data.order?.status !== 'paid'
+          ) {
+            return previous;
+          }
+
+          return data.order as InternalOrderSummary;
+        });
+        internalOrderScopeRef.current = checkoutFingerprint;
+        writeStoredBankingOrder(data.order.id, checkoutFingerprint);
+        return data.order;
+      }
+      return null;
+    } catch (error) {
+      console.error('Refresh order status failed:', error);
+      return null;
+    }
+  }, [checkoutFingerprint, isScopeStale]);
+
+  const createBankingOrder = useCallback(async (): Promise<InternalOrderSummary | null> => {
+    if (internalOrder) return internalOrder;
+    if (creatingBankingOrderRef.current) return null;
+
+    creatingBankingOrderRef.current = true;
+    setCreatingBankingOrder(true);
+    setOrderError(null);
+
+    const expectedFingerprint = checkoutFingerprint;
+    const expectedNonce = checkoutScopeRef.current.nonce;
+    const abortController = new AbortController();
+    createOrderAbortRef.current = abortController;
+
+    try {
+      const response = await fetch('/api/orders/internal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: abortController.signal,
+        body: JSON.stringify({
+          paymentMethod: 'banking',
+          amount: Math.round(grandTotal),
+          currency,
+          note: orderNote,
+          customerEmail: user?.email,
+          items: buildItemsPayload(),
+        }),
+      });
+
+      const data = (await response.json()) as { order?: InternalOrderSummary; error?: string };
+
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
+      if (!response.ok || !data.order) {
+        throw new Error(data.error || 'Không thể tạo mã thanh toán.');
+      }
+
+      setInternalOrder(data.order);
+      internalOrderScopeRef.current = checkoutFingerprint;
+      writeStoredBankingOrder(data.order.id, checkoutFingerprint);
+      return data.order;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return null;
+      }
+
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
+      console.error('Create banking order failed:', error);
+      setOrderError(error instanceof Error ? error.message : 'Không thể tạo mã thanh toán.');
+      return null;
+    } finally {
+      if (createOrderAbortRef.current === abortController) {
+        createOrderAbortRef.current = null;
+      }
+      creatingBankingOrderRef.current = false;
+      setCreatingBankingOrder(false);
+    }
+  }, [buildItemsPayload, checkoutFingerprint, currency, grandTotal, internalOrder, isScopeStale, orderNote, user?.email]);
+
+  const checkPaymentStatus = useCallback(async (
+    orderIdToCheck: string,
+    options?: { silent?: boolean }
+  ): Promise<InternalOrderSummary | null> => {
+    const expectedFingerprint = checkoutFingerprint;
+    const expectedNonce = checkoutScopeRef.current.nonce;
+    const requestSeq = paymentCheckRequestSeqRef.current + 1;
+    paymentCheckRequestSeqRef.current = requestSeq;
+    const isSilent = Boolean(options?.silent);
+
+    if (!isSilent) {
+      setCheckingPayment(true);
+    }
+    try {
+      const response = await fetch(`/api/orders/internal/${encodeURIComponent(orderIdToCheck)}/check-payment`, {
+        method: 'POST',
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        return refreshOrderStatus(orderIdToCheck);
+      }
+
+      const data = (await response.json()) as { order?: InternalOrderSummary };
+
+      if (isScopeStale(expectedFingerprint, expectedNonce)) {
+        return null;
+      }
+
+      if (requestSeq !== paymentCheckRequestSeqRef.current) {
+        return null;
+      }
+
+      if (data.order) {
+        setInternalOrder((previous) => {
+          if (!previous) return data.order as InternalOrderSummary;
+          if (previous.status === 'paid' && data.order?.status !== 'paid') {
+            return previous;
+          }
+
+          const previousUpdatedAt = Number(previous.updatedAt || 0);
+          const nextUpdatedAt = Number(data.order?.updatedAt || 0);
+          if (
+            previousUpdatedAt > 0 &&
+            nextUpdatedAt > 0 &&
+            nextUpdatedAt < previousUpdatedAt &&
+            data.order?.status !== 'paid'
+          ) {
+            return previous;
+          }
+
+          return data.order as InternalOrderSummary;
+        });
+        return data.order;
+      }
+
+      return refreshOrderStatus(orderIdToCheck);
+    } catch (error) {
+      console.error('Proactive payment check failed:', error);
+      return refreshOrderStatus(orderIdToCheck);
+    } finally {
+      if (!isSilent) {
+        setCheckingPayment(false);
+      }
+    }
+  }, [checkoutFingerprint, isScopeStale, refreshOrderStatus]);
+
+  const applyPaidCartSync = useCallback(async (): Promise<void> => {
+    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid' || !isSingleProductCheckout) {
+      return;
+    }
+
+    const paidOrderId = internalOrder?.id || '';
+    if (!paidOrderId) {
+      return;
+    }
+
+    const selectedItem = checkoutItems[0];
+    const pendingPayload = readPendingCartSync();
+
+    const sourceQuantity = selectedItem
+      ? Math.max(1, Math.floor(selectedItem.quantity))
+      : Math.max(1, Math.floor(Number(pendingPayload?.expectedQuantityBeforePay || 1)));
+    const paidUnits = pendingPayload
+      ? Math.max(1, Math.floor(pendingPayload.paidUnits || 1))
+      : (singleCheckoutMode === 'total' ? resolveCheckoutItemQuantity(sourceQuantity) : 1);
+
+    const currentItems = Array.isArray(cart?.items) ? cart.items : [];
+    const matchedItem = currentItems.find((item) => {
+      if (pendingPayload?.itemId && item.id === pendingPayload.itemId) return true;
+      if (pendingPayload?.itemUid && item.uid === pendingPayload.itemUid) return true;
+      if (selectedItem?.id && item.id === selectedItem.id) return true;
+      if (selectedItem?.uid && item.uid === selectedItem.uid) return true;
+
+      const targetSku = pendingPayload?.sku || selectedItem?.product.sku || '';
+      return Boolean(targetSku) && item.product.sku === targetSku;
+    });
+
+    if (!matchedItem) {
+      clearPendingCartSync();
+      await refreshCart();
+      return;
+    }
+
+    const currentQuantity = Math.max(0, Math.floor(matchedItem.quantity));
+    const nextQuantity = Math.max(0, currentQuantity - paidUnits);
+
+    if (nextQuantity <= 0) {
+      await removeItem(matchedItem.id);
+    } else {
+      await updateQuantity(matchedItem.id, nextQuantity);
+    }
+
+    clearPendingCartSync();
+    await refreshCart();
+  }, [
+    cart?.items,
+    checkoutItems,
+    internalOrder?.id,
+    internalOrder?.status,
+    isSingleProductCheckout,
+    paymentMethod,
+    refreshCart,
+    removeItem,
+    resolveCheckoutItemQuantity,
+    singleCheckoutMode,
+    updateQuantity,
+  ]);
+
+  const handleContinueShopping = useCallback(async () => {
+    try {
+      await applyPaidCartSync();
+    } catch (error) {
+      console.error('Continue shopping sync failed:', error);
+    } finally {
+      router.push('/');
+    }
+  }, [applyPaidCartSync, router]);
+
+  useEffect(() => {
+    if (
+      authLoading ||
+      loading ||
+      isEmpty ||
+      checkoutItems.length === 0 ||
+      paymentMethod !== 'banking' ||
+      internalOrder ||
+      switchingCheckoutMode
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const prepareBankingOrder = async () => {
+      if (forceNewOrder) {
+        clearStoredBankingOrder();
+      }
+
+      const stored = readStoredBankingOrder();
+      if (stored?.orderId) {
+        if (stored.checkoutFingerprint && stored.checkoutFingerprint !== checkoutFingerprint) {
+          clearStoredBankingOrder();
+        } else {
+          const restored = await refreshOrderStatus(stored.orderId);
+          if (restored) {
+            if (restored.status === 'pending') {
+              return;
+            }
+
+            setInternalOrder(null);
+            setOrderPlaced(false);
+            clearStoredBankingOrder();
+          } else {
+            clearStoredBankingOrder();
+          }
+        }
+      }
+
+      if (cancelled) return;
+      await createBankingOrder();
+    };
+
+    void prepareBankingOrder();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authLoading,
+    loading,
+    isEmpty,
+    checkoutItems.length,
+    checkoutFingerprint,
+    createBankingOrder,
+    forceNewOrder,
+    internalOrder,
+    paymentMethod,
+    refreshOrderStatus,
+    switchingCheckoutMode,
+  ]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid') {
+      return;
+    }
+
+    clearStoredBankingOrder();
+  }, [paymentMethod, internalOrder?.id, internalOrder?.status]);
+
+  useEffect(() => {
+    if (!internalOrder) {
+      internalOrderScopeRef.current = '';
+      return;
+    }
+
+    if (internalOrder.status === 'paid') {
+      return;
+    }
+
+    const scopedFingerprint = internalOrderScopeRef.current;
+    if (!scopedFingerprint || scopedFingerprint === checkoutFingerprint) {
+      return;
+    }
+
+    setInternalOrder(null);
+    setOrderPlaced(false);
+    setOrderError(null);
+    clearStoredBankingOrder();
+  }, [checkoutFingerprint, internalOrder]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'banking' || !internalOrder || internalOrder.status === 'paid') {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setCountdownNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [paymentMethod, internalOrder?.id, internalOrder?.status]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid') {
+      return;
+    }
+
+    setShowPaidNotice(true);
+    setOrderPlaced(true);
+  }, [paymentMethod, internalOrder?.status, internalOrder?.sepayTransactionId]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid') {
+      return;
+    }
+
+    if (!isSingleProductCheckout) {
+      return;
+    }
+
+    const paidOrderId = internalOrder?.id || '';
+    if (!paidOrderId || cartSyncedPaidOrderRef.current === paidOrderId) {
+      return;
+    }
+
+    const selectedItem = checkoutItems[0];
+    if (!selectedItem) {
+      return;
+    }
+
+    cartSyncedPaidOrderRef.current = paidOrderId;
+
+    const sourceQuantity = Math.max(1, Math.floor(selectedItem.quantity));
+    const paidUnits = singleCheckoutMode === 'total' ? resolveCheckoutItemQuantity(sourceQuantity) : 1;
+    const pendingPayload: PendingCartSync = {
+      orderId: paidOrderId,
+      itemId: selectedItem.id,
+      itemUid: selectedItem.uid,
+      sku: selectedItem.product.sku,
+      paidUnits,
+      checkoutMode: singleCheckoutMode,
+      expectedQuantityBeforePay: sourceQuantity,
+      savedAt: Date.now(),
+    };
+
+    writePendingCartSync(pendingPayload);
+
+    let cancelled = false;
+    const syncCartImmediately = async () => {
+      const currentItems = Array.isArray(cart?.items) ? cart.items : [];
+      const matchedItem = currentItems.find((item) => {
+        if (pendingPayload.itemId && item.id === pendingPayload.itemId) return true;
+        if (pendingPayload.itemUid && item.uid === pendingPayload.itemUid) return true;
+        return item.product.sku === pendingPayload.sku;
+      });
+
+      if (!matchedItem) {
+        clearPendingCartSync();
+        await refreshCart();
+        return;
+      }
+
+      const currentQuantity = Math.max(0, Math.floor(matchedItem.quantity));
+      const nextQuantity = Math.max(0, currentQuantity - pendingPayload.paidUnits);
+
+      if (nextQuantity <= 0) {
+        await removeItem(matchedItem.id);
+      } else {
+        await updateQuantity(matchedItem.id, nextQuantity);
+      }
+
+      clearPendingCartSync();
+      if (!cancelled) {
+        await refreshCart();
+      }
+    };
+
+    void syncCartImmediately().catch((error) => {
+      console.error('Immediate paid cart sync failed:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    paymentMethod,
+    internalOrder?.id,
+    internalOrder?.status,
+    isSingleProductCheckout,
+    checkoutItems,
+    resolveCheckoutItemQuantity,
+    singleCheckoutMode,
+    cart?.items,
+    refreshCart,
+    removeItem,
+    updateQuantity,
+  ]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'banking' || !internalOrder?.id || internalOrder.status !== 'pending') {
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      const next = await checkPaymentStatus(internalOrder.id, { silent: true });
+      if (cancelled || !next) return;
+    };
+
+    void poll();
+    const timer = setInterval(() => {
+      void poll();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [checkPaymentStatus, paymentMethod, internalOrder?.id, internalOrder?.status]);
+
+  const isAddressComplete = Boolean(
+    !requiresShippingInfo || (
+      fullName.trim() &&
+      phone.trim() &&
+      address.trim() &&
+      (shippingCarrier === 'ghn'
+        ? (ghnProvince && ghnDistrict && ghnWard)
+        : (vtpProvince && vtpDistrict && vtpWard))
+    )
   );
+  const hasShippingFee = !requiresShippingInfo || (shippingFee !== null && Number.isFinite(shippingFee) && shippingFee >= 0);
 
   const selectedProvinceName = shippingCarrier === 'ghn' ? ghnProvince?.ProvinceName : vtpProvince?.PROVINCE_NAME;
   const selectedDistrictName = shippingCarrier === 'ghn' ? ghnDistrict?.DistrictName : vtpDistrict?.DISTRICT_NAME;
   const selectedWardName = shippingCarrier === 'ghn' ? ghnWard?.WardName : vtpWard?.WARDS_NAME;
 
   const doCreateShippingOrder = async () => {
+    if (!requiresShippingInfo) {
+      return null;
+    }
+
     if (shippingCarrier === 'ghn') return await createGHNOrder();
     return await createVTPOrder();
   };
 
   const handleConfirmOrder = async () => {
+    setOrderError(null);
+    if (switchingCheckoutMode) {
+      setOrderError('Đang đồng bộ chế độ thanh toán. Vui lòng đợi trong giây lát.');
+      return;
+    }
     if (!isAddressComplete) { alert('Vui lòng điền đầy đủ thông tin địa chỉ giao hàng!'); return; }
+    if (requiresShippingInfo && shippingLoading) { alert('Hệ thống đang tính phí vận chuyển, vui lòng chờ một chút.'); return; }
+    if (!hasShippingFee) { alert('Chưa tính được phí vận chuyển. Vui lòng kiểm tra lại địa chỉ giao hàng.'); return; }
     if (paymentMethod === 'momo') { await handleMomoPayment(); return; }
+    setPlacingOrder(true);
     setConfirmLoading(true);
-    const code = await doCreateShippingOrder();
-    if (code) setShippingOrderCode(code);
-    setConfirmLoading(false);
-    setOrderPlaced(true);
+    try {
+      if (requiresShippingInfo) {
+        const code = await doCreateShippingOrder();
+        if (!code) {
+          alert('Không thể tạo vận đơn giao hàng. Vui lòng thử lại.');
+          return;
+        }
+
+        setShippingOrderCode(code);
+      } else {
+        setShippingOrderCode(null);
+      }
+
+      if (paymentMethod === 'banking') {
+        const bankingOrder = internalOrder || (await createBankingOrder());
+        if (!bankingOrder) throw new Error('Không thể tạo mã thanh toán.');
+        setOrderPlaced(true);
+        return;
+      }
+
+      setOrderPlaced(true);
+    } catch (error) {
+      console.error('Place order failed:', error);
+      setOrderError(error instanceof Error ? error.message : 'Không thể tạo đơn hàng thanh toán.');
+    } finally {
+      setConfirmLoading(false);
+      setPlacingOrder(false);
+    }
   };
 
   if (authLoading || loading) {
@@ -379,10 +1402,18 @@ if (list.length > 0) {
     );
   }
 
-  const isEmpty = !cart || !cart.items || cart.items.length === 0;
-  const checkoutItems = isEmpty ? [] : itemId ? cart.items.filter(item => item.id === itemId) : cart.items;
+  if (!orderPlaced && !internalOrder && (isEmpty || checkoutItems.length === 0)) {
+    if (ensuringSkuItem) {
+      return (
+        <div className="min-h-screen bg-gray-50 py-8">
+          <div className="container-custom text-center py-20">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-primary-200 border-t-primary-600" />
+            <p className="text-gray-600">Đang chuẩn bị sản phẩm để thanh toán...</p>
+          </div>
+        </div>
+      );
+    }
 
-  if (isEmpty || checkoutItems.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="container-custom text-center py-20">
@@ -393,39 +1424,166 @@ if (list.length > 0) {
     );
   }
 
-  const currency = cart.prices.subtotal_excluding_tax.currency;
-  const orderTotal = checkoutItems.reduce((sum, item) => {
-    const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
-    return sum + unitPrice * item.quantity;
-  }, 0);
-  const grandTotal = orderTotal + (shippingFee || 0);
-  const formattedTotal = formatPrice(orderTotal, currency);
-  const formattedGrandTotal = formatPrice(grandTotal, currency);
+  const receivedAmount = internalOrder?.lastPaymentAmountReceived || 0;
+  const isBankingPaid = paymentMethod === 'banking' && internalOrder?.status === 'paid';
+  const isBankingUnderpaid = paymentMethod === 'banking' && !isBankingPaid && receivedAmount > 0 && receivedAmount < qrAmount;
+  const remainingAmount = isBankingUnderpaid ? qrAmount - receivedAmount : 0;
+
+  const paidNoticeNode = showPaidNotice && paymentMethod === 'banking' && internalOrder?.status === 'paid' ? (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl">
+      <div className="rounded-xl border border-emerald-300 bg-emerald-50 shadow-lg px-4 py-3 text-emerald-900">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold">Đã xác nhận thanh toán</p>
+            <p className="text-xs mt-1">{internalOrder?.paymentStatusMessage || 'Hệ thống đã nhận giao dịch thanh toán của bạn.'}</p>
+            {internalOrder?.sepayTransactionId && (
+              <p className="text-xs mt-1 font-semibold">Mã GD SePay: {internalOrder.sepayTransactionId}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPaidNotice(false)}
+            className="text-xs font-semibold opacity-70 hover:opacity-100"
+          >
+            Đóng
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   if (orderPlaced) {
+    const bankingPending = paymentMethod === 'banking' && !isBankingPaid;
+
     return (
       <div className="min-h-screen bg-gray-50 py-8">
+        {paidNoticeNode}
         <div className="container-custom">
           <div className="max-w-lg mx-auto bg-white rounded-xl shadow-sm p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${bankingPending ? 'bg-amber-100' : 'bg-green-100'}`}>
+              {bankingPending ? (
+                <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l2 2m6-2a8 8 0 11-16 0 8 8 0 0116 0z" />
+                </svg>
+              ) : (
+                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Đặt hàng thành công!</h2>
-            <p className="text-gray-600 mb-1">Mã đơn hàng: <strong className="text-primary-700">{orderId}</strong></p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              {bankingPending ? 'Đơn hàng đã tạo, chờ chuyển khoản' : 'Đặt hàng thành công!'}
+            </h2>
+            <p className="text-gray-600 mb-1">Mã đơn hàng: <strong className="text-primary-700">{activeOrderId}</strong></p>
             {shippingOrderCode && (
               <p className="text-gray-600 mb-1 text-sm">
                 Mã vận đơn {shippingCarrier === 'ghn' ? 'GHN' : 'Viettel Post'}: <strong className="text-blue-600">{shippingOrderCode}</strong>
               </p>
             )}
-            <p className="text-gray-600 mb-1 text-sm">
-              Giao đến: <strong>{fullName}</strong> — {address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}
-            </p>
-            <p className="text-gray-600 mb-6 text-sm">Phương thức: {paymentMethodLabel[paymentMethod]}</p>
-            <Link href="/" className="inline-block bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors">
+            {requiresShippingInfo && (
+              <p className="text-gray-600 mb-1 text-sm">
+                Giao đến: <strong>{fullName}</strong> — {address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}
+              </p>
+            )}
+            <p className="text-gray-600 mb-4 text-sm">Phương thức: {paymentMethodLabel[paymentMethod]}</p>
+
+            {paymentMethod === 'banking' && (
+              <div className="text-left border border-gray-200 rounded-lg p-4 mb-6 text-sm space-y-3">
+                <div className={`rounded-lg px-3 py-2 text-xs ${isBankingPaid ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
+                  {isBankingPaid
+                    ? (internalOrder?.paymentStatusMessage || 'Hệ thống đã xác nhận giao dịch SePay.')
+                    : (internalOrder?.paymentStatusMessage || 'Vui lòng chuyển khoản đúng nội dung bên dưới để hệ thống tự động đối soát.')}
+                </div>
+
+                {bankingQrUrl && !isBankingPaid && (
+                  <div className="flex justify-center">
+                    <img
+                      src={bankingQrUrl}
+                      alt="QR chuyển khoản SePay"
+                      className="w-56 h-56 object-contain rounded-lg border border-emerald-200 bg-white p-2"
+                    />
+                  </div>
+                )}
+
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Ngân hàng</span>
+                  <span className="font-semibold text-gray-900">{resolvedBankName}</span>
+                </div>
+                <div className="flex justify-between gap-2 items-center">
+                  <span className="text-gray-500">Số tài khoản</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900">{resolvedBankAccountNo || 'Chưa cấu hình'}</span>
+                    {resolvedBankAccountNo && (
+                      <button
+                        type="button"
+                        onClick={() => copyText(resolvedBankAccountNo, 'account')}
+                        className="px-2 py-0.5 rounded border border-gray-300 text-[10px] font-semibold hover:bg-white"
+                      >
+                        {copiedField === 'account' ? 'Đã copy' : 'Copy'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Chủ tài khoản</span>
+                  <span className="font-semibold text-gray-900">{resolvedBankAccountName || 'Chưa cấu hình'}</span>
+                </div>
+                <div className="flex justify-between gap-2 items-center">
+                  <span className="text-gray-500">Nội dung CK</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900">{transferContent || 'Đang tạo mã'}</span>
+                    {transferContent && (
+                      <button
+                        type="button"
+                        onClick={() => copyText(transferContent, 'content')}
+                        className="px-2 py-0.5 rounded border border-gray-300 text-[10px] font-semibold hover:bg-white"
+                      >
+                        {copiedField === 'content' ? 'Đã copy' : 'Copy'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Số tiền</span>
+                  <span className="font-semibold text-primary-700">{formatPrice(qrAmount, internalOrder?.currency || currency)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500">Đã nhận</span>
+                  <span className="font-semibold text-gray-900">{formatPrice(receivedAmount, internalOrder?.currency || currency)}</span>
+                </div>
+                {isBankingUnderpaid && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">Còn thiếu</span>
+                    <span className="font-semibold text-amber-700">{formatPrice(remainingAmount, internalOrder?.currency || currency)}</span>
+                  </div>
+                )}
+                {internalOrder?.sepayTransactionId && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">Mã GD SePay</span>
+                    <span className="font-semibold text-emerald-700">{internalOrder.sepayTransactionId}</span>
+                  </div>
+                )}
+
+                {!isBankingPaid && (
+                  <button
+                    type="button"
+                    onClick={() => internalOrder?.id ? void checkPaymentStatus(internalOrder.id) : undefined}
+                    disabled={checkingPayment}
+                    className="w-full mt-2 bg-emerald-600 text-white font-semibold py-2 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                  >
+                    {checkingPayment ? 'Đang kiểm tra giao dịch...' : 'Thanh toán đã hoàn tất'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleContinueShopping}
+              className="inline-block bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
+            >
               Tiếp tục mua sắm
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -434,6 +1592,7 @@ if (list.length > 0) {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
+      {paidNoticeNode}
       <div className="container-custom">
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
           <Link href="/" className="hover:text-primary-600">Trang chủ</Link>
@@ -446,10 +1605,11 @@ if (list.length > 0) {
         <h1 className="text-2xl font-bold mb-6">Thanh toán</h1>
 
         <div className="grid md:grid-cols-2 gap-8">
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
 
             {/* Thông tin giao hàng */}
-            <div className="bg-white rounded-xl shadow-sm p-5 space-y-3">
+            {paymentMethod === 'cod' && (
+            <div className="order-2 bg-white rounded-xl shadow-sm p-5 space-y-3">
               <h2 className="font-bold text-gray-900">Thông tin giao hàng</h2>
 
               <div className="grid grid-cols-2 gap-3">
@@ -567,27 +1727,69 @@ if (list.length > 0) {
                 </div>
               )}
             </div>
+            )}
 
             {/* Đơn hàng */}
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="order-1 bg-white rounded-xl shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100">
                 <h2 className="font-bold text-gray-900">Đơn hàng của bạn</h2>
+                {allowTotalForSingleItem && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchSingleCheckoutMode('single')}
+                      disabled={switchingCheckoutMode}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
+                        singleCheckoutMode === 'single'
+                          ? 'border-primary-500 bg-primary-50 text-primary-700'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      Thanh toán riêng (1 sản phẩm)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchSingleCheckoutMode('total')}
+                      disabled={switchingCheckoutMode}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
+                        singleCheckoutMode === 'total'
+                          ? 'border-primary-500 bg-primary-50 text-primary-700'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      Thanh toán tổng (x{singleCheckoutTargetItem?.quantity || 1})
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="divide-y divide-gray-50">
                 {checkoutItems.map((item) => {
-                  const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
+                  const quantity = resolveCheckoutItemQuantity(item.quantity);
+                  const unitPrice = resolveCheckoutUnitPrice(item);
                   return (
                     <div key={item.id} className="flex items-center gap-4 px-5 py-4">
                       <div className="w-14 h-14 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden">
-                        <img src={item.product.thumbnail?.url || '/images/placeholder.svg'} alt={item.product.name}
-                          className="w-full h-full object-contain p-1" onError={(e) => { e.currentTarget.src = '/images/placeholder.svg'; }} />
+                        {item.product.thumbnail?.url ? (
+                          <img
+                            src={item.product.thumbnail.url}
+                            alt={item.product.name}
+                            className="w-full h-full object-contain p-1"
+                            onError={(e) => {
+                              e.currentTarget.style.visibility = 'hidden';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-400 px-1 text-center">
+                            Không có ảnh
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 text-sm truncate">{item.product.name}</p>
-                        <p className="text-xs text-gray-500">x{item.quantity}</p>
+                        <p className="text-xs text-gray-500">x{quantity}</p>
                       </div>
                       <span className="font-semibold text-sm text-gray-900 flex-shrink-0">
-                        {formatPrice(unitPrice * item.quantity, item.prices.row_total.currency)}
+                        {formatPrice(unitPrice * quantity, item.prices.row_total.currency)}
                       </span>
                     </div>
                   );
@@ -597,12 +1799,14 @@ if (list.length > 0) {
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Tạm tính</span><span>{formattedTotal}</span>
                 </div>
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>Phí vận chuyển ({shippingCarrier === 'ghn' ? 'GHN' : 'Viettel Post'})</span>
-                  {shippingLoading ? <span className="text-gray-400">Đang tính...</span>
-                    : shippingFee !== null ? <span className="text-blue-600 font-medium">{formatPrice(shippingFee, currency)}</span>
-                    : <span className="text-gray-400">Chưa tính</span>}
-                </div>
+                {requiresShippingInfo && (
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Phí vận chuyển ({shippingCarrier === 'ghn' ? 'GHN' : 'Viettel Post'})</span>
+                    {shippingLoading ? <span className="text-gray-400">Đang tính...</span>
+                      : shippingFee !== null ? <span className="text-blue-600 font-medium">{formatPrice(shippingFee, currency)}</span>
+                      : <span className="text-gray-400">Chưa tính</span>}
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-gray-900 text-lg border-t border-gray-200 pt-2">
                   <span>Tổng cộng</span>
                   <span className="text-primary-600">{formattedGrandTotal}</span>
@@ -611,7 +1815,7 @@ if (list.length > 0) {
             </div>
 
             {/* Ghi chú */}
-            <div className="bg-white rounded-xl shadow-sm p-5">
+            <div className="order-3 bg-white rounded-xl shadow-sm p-5">
               <label className="block text-sm font-medium text-gray-700 mb-2">Ghi chú đơn hàng (tuỳ chọn)</label>
               <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)}
                 placeholder="Màu sắc, phiên bản, yêu cầu giao hàng..." rows={3}
@@ -619,7 +1823,7 @@ if (list.length > 0) {
             </div>
 
             {/* Thanh toán */}
-            <div className="bg-white rounded-xl shadow-sm p-5 space-y-3">
+            <div className="order-4 bg-white rounded-xl shadow-sm p-5 space-y-3">
               <h2 className="font-bold text-gray-900">Phương thức thanh toán</h2>
               <div className="space-y-3">
                 {(['cod', 'banking', 'momo'] as PaymentMethod[]).map(method => (
@@ -630,16 +1834,52 @@ if (list.length > 0) {
                         : 'border-gray-200 bg-white hover:border-gray-300'
                     }`}>
                     {method === 'cod' && <><p className="text-sm font-medium text-gray-900">Thanh toán khi nhận hàng (COD)</p><p className="text-xs text-gray-600 mt-1">Thanh toán tiền mặt khi nhận hàng.</p></>}
-                    {method === 'banking' && <div className="flex items-center justify-between gap-3"><p className="text-sm font-medium text-gray-900">Chuyển khoản ngân hàng</p><span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Bạn sẽ xử lý sau</span></div>}
-                    {method === 'momo' && <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="text-pink-600 text-lg">💳</span><p className="text-sm font-medium text-gray-900">Ví MoMo</p></div>{paymentMethod === 'momo' && <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-semibold">Đã chọn</span>}</div>}
+                    {method === 'banking' && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-gray-900">Chuyển khoản ngân hàng</p>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">QR sẵn sàng</span>
+                        </div>
+                        <p className="text-xs text-gray-600">Quét QR và chuyển khoản đúng nội dung để đối soát tự động.</p>
+                      </div>
+                    )}
+                    {method === 'momo' && (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2"><span className="text-pink-600 text-lg">💳</span><p className="text-sm font-medium text-gray-900">Ví MoMo</p></div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Bạn sẽ xử lý sau</span>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
-              <button onClick={handleConfirmOrder} disabled={momoLoading || confirmLoading}
+
+              {orderError && (
+                <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {orderError}
+                </div>
+              )}
+
+              <button onClick={handleConfirmOrder} disabled={switchingCheckoutMode || placingOrder || momoLoading || confirmLoading || creatingBankingOrder || (requiresShippingInfo && shippingLoading) || !isAddressComplete || !hasShippingFee}
                 className={`w-full font-bold py-3 rounded-xl transition-colors text-white ${
-                  paymentMethod === 'momo' ? 'bg-pink-600 hover:bg-pink-700' : 'bg-primary-600 hover:bg-primary-700'
+                  paymentMethod === 'momo'
+                    ? 'bg-pink-600 hover:bg-pink-700'
+                    : paymentMethod === 'banking'
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-primary-600 hover:bg-primary-700'
                 } disabled:opacity-60 disabled:cursor-not-allowed`}>
-                {confirmLoading ? 'Đang tạo đơn...' : momoLoading ? 'Đang tạo QR...' : `Xác nhận đặt hàng (${paymentMethodLabel[paymentMethod]})`}
+                {switchingCheckoutMode
+                  ? 'Đang đồng bộ chế độ thanh toán...'
+                  : confirmLoading
+                  ? 'Đang tạo đơn...'
+                  : placingOrder
+                    ? 'Đang xử lý...'
+                  : creatingBankingOrder
+                    ? 'Đang tạo mã chuyển khoản...'
+                    : momoLoading
+                      ? 'Đang tạo QR...'
+                      : paymentMethod === 'banking'
+                        ? 'Theo dõi thanh toán (Chuyển khoản ngân hàng)'
+                        : `Xác nhận đặt hàng (${paymentMethodLabel[paymentMethod]})`}
               </button>
             </div>
           </div>
@@ -647,6 +1887,12 @@ if (list.length > 0) {
           {/* Right */}
           <div className="space-y-4">
             <div className="bg-white rounded-xl shadow-sm p-6 text-sm text-gray-700 space-y-3">
+              {paymentMethod === 'cod' && (
+                <>
+                  <h3 className="font-bold text-gray-900">{paymentMethodLabel[paymentMethod]}</h3>
+                  <p>{paymentMethodDescription[paymentMethod]}</p>
+                </>
+              )}
               {paymentMethod === 'momo' && momoQR ? (
                 <div className="text-center space-y-4">
                   <div className="flex items-center justify-center gap-2 mb-2">
@@ -662,10 +1908,9 @@ if (list.length > 0) {
                     <p className="text-xs text-gray-500">Mã đơn: {orderId}</p>
                   </div>
                   <button onClick={async () => {
-                    setMomoQR(null); setConfirmLoading(true);
-                    const code = await doCreateShippingOrder();
-                    if (code) setShippingOrderCode(code);
-                    setConfirmLoading(false); setOrderPlaced(true);
+                    setMomoQR(null);
+                    setShippingOrderCode(null);
+                    setOrderPlaced(true);
                   }} className="w-full bg-pink-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-pink-700 transition-colors">
                     Tôi đã thanh toán xong
                   </button>
@@ -677,14 +1922,101 @@ if (list.length > 0) {
                   <p className="text-gray-600 text-xs">Bấm <strong>Xác nhận đặt hàng</strong> để tạo mã QR thanh toán.</p>
                   {momoError && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><p className="text-red-600 text-xs">{momoError}</p></div>}
                 </div>
+              ) : paymentMethod === 'banking' ? (
+                <div className="space-y-3">
+                  {!internalOrder ? (
+                    <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      {switchingCheckoutMode
+                        ? 'Đang đồng bộ chế độ thanh toán lẻ/tổng. Vui lòng đợi QR mới trước khi quét.'
+                        : <>Nhấn <strong>Theo dõi thanh toán</strong> để tạo mã chuyển khoản.</>}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="border border-emerald-200 rounded-xl p-3 bg-emerald-50/30">
+                        {bankingQrUrl ? (
+                          <img
+                            src={bankingQrUrl}
+                            alt="QR chuyển khoản ngân hàng"
+                            className="w-full max-w-[360px] mx-auto object-contain rounded-lg border border-emerald-200 bg-white p-2"
+                          />
+                        ) : (
+                          <div className="text-xs text-gray-500 text-center py-8">Chưa có mã QR thanh toán</div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">Ngân hàng</span>
+                          <span className="font-semibold text-gray-900">{resolvedBankName || 'Chưa cấu hình'}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">Số tài khoản</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900">{resolvedBankAccountNo || 'Chưa cấu hình'}</span>
+                            {resolvedBankAccountNo && (
+                              <button
+                                type="button"
+                                onClick={() => copyText(resolvedBankAccountNo, 'account')}
+                                className="px-2 py-0.5 rounded border border-gray-300 text-[10px] font-semibold hover:bg-white"
+                              >
+                                {copiedField === 'account' ? 'Đã copy' : 'Copy'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">Chủ tài khoản</span>
+                          <span className="font-semibold text-gray-900">{resolvedBankAccountName || 'Chưa cấu hình'}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">Số tiền</span>
+                          <span className="font-semibold text-primary-700">{formatPrice(qrAmount, internalOrder.currency || currency)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">Nội dung CK</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900">{transferContent || 'Đang tạo mã'}</span>
+                            {transferContent && (
+                              <button
+                                type="button"
+                                onClick={() => copyText(transferContent, 'content')}
+                                className="px-2 py-0.5 rounded border border-gray-300 text-[10px] font-semibold hover:bg-white"
+                              >
+                                {copiedField === 'content' ? 'Đã copy' : 'Copy'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-500">Trạng thái</span>
+                          <span className={`font-semibold ${internalOrder.status === 'paid' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                            {internalOrder.status === 'paid' ? 'Đã thanh toán' : 'Chờ thanh toán'}
+                          </span>
+                        </div>
+
+                        {internalOrder.status !== 'paid' && (
+                          <button
+                            type="button"
+                            onClick={() => void checkPaymentStatus(internalOrder.id)}
+                            disabled={checkingPayment}
+                            className="w-full mt-2 bg-emerald-600 text-white font-semibold py-2 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                          >
+                            {checkingPayment ? 'Đang kiểm tra giao dịch...' : 'Thanh toán đã hoàn tất'}
+                          </button>
+                        )}
+
+                        {internalOrder.paymentStatusMessage && (
+                          <p className="text-[11px] text-gray-500">{internalOrder.paymentStatusMessage}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               ) : (
-                <>
-                  <h3 className="font-bold text-gray-900">{paymentMethod === 'cod' ? 'Thanh toán khi nhận hàng (COD)' : 'Chuyển khoản ngân hàng'}</h3>
-                  <p>{paymentMethod === 'cod' ? 'Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.' : 'Tạm thời ghi nhận lựa chọn chuyển khoản. Bạn sẽ cấu hình thông tin tài khoản nhận tiền sau.'}</p>
-                </>
+                <></>
               )}
 
-              {isAddressComplete && paymentMethod !== 'momo' && (
+              {isAddressComplete && paymentMethod === 'cod' && (
                 <div className="bg-gray-50 rounded-lg p-3 space-y-1 border border-gray-200">
                   <p className="text-xs font-semibold text-gray-700">📦 Giao đến:</p>
                   <p className="text-xs text-gray-600">{fullName} — {phone}</p>

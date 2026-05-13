@@ -32,15 +32,6 @@ interface MagentoRestInvoice {
   order_id?: number;
 }
 
-function resolveFallbackSku(): string {
-  return (process.env.MAGENTO_SYNC_FALLBACK_SKU || '').trim();
-}
-
-function isMissingSkuMessage(message: string): boolean {
-  const normalized = (message || '').toLowerCase();
-  return normalized.includes('could not find a product with sku') || normalized.includes('no such entity with sku');
-}
-
 const DEFAULT_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
 const DEFAULT_MAGENTO_API_URL = 'https://www.ahphonestore.id.vn';
 
@@ -432,16 +423,22 @@ async function magentoGraphql<T>(query: string, variables?: Record<string, unkno
 }
 
 function resolveCustomerInfo(order: InternalOrder) {
-  const fullName = (process.env.MAGENTO_SYNC_FULLNAME || 'Anh Huy').trim();
+  const fullName = (process.env.MAGENTO_SYNC_FULLNAME || '').trim();
   const split = fullName.split(/\s+/).filter(Boolean);
-  const fallbackFirst = split[0] || 'Anh';
-  const fallbackLast = split.slice(1).join(' ') || 'Huy';
+  const firstname = (process.env.MAGENTO_SYNC_FIRSTNAME || split[0] || '').trim();
+  const lastname = (process.env.MAGENTO_SYNC_LASTNAME || split.slice(1).join(' ') || '').trim();
+  const email = (order.customerEmail || process.env.MAGENTO_SYNC_EMAIL || '').trim();
+  const telephone = (process.env.MAGENTO_SYNC_TELEPHONE || '').trim();
+
+  if (!email || !firstname || !lastname || !telephone) {
+    throw new Error('MAGENTO_SYNC_CUSTOMER_INFO_INCOMPLETE');
+  }
 
   return {
-    email: order.customerEmail || process.env.MAGENTO_SYNC_EMAIL_FALLBACK || 'guest@ahphonestore.id.vn',
-    firstname: process.env.MAGENTO_SYNC_FIRSTNAME || fallbackFirst,
-    lastname: process.env.MAGENTO_SYNC_LASTNAME || fallbackLast,
-    telephone: process.env.MAGENTO_SYNC_TELEPHONE || '0900000000',
+    email,
+    firstname,
+    lastname,
+    telephone,
   };
 }
 
@@ -497,34 +494,7 @@ export async function syncInternalOrderToMagento(order: InternalOrder): Promise<
 
     if (addProductsData.addProductsToCart.user_errors.length > 0) {
       const firstError = addProductsData.addProductsToCart.user_errors[0].message || 'Cannot add products to cart';
-      const fallbackSku = resolveFallbackSku();
-
-      if (fallbackSku && isMissingSkuMessage(firstError)) {
-        const totalQuantity = Math.max(
-          1,
-          order.items.reduce((sum, item) => sum + Math.max(1, Math.floor(item.quantity || 0)), 0)
-        );
-
-        addProductsData = await magentoGraphql<{
-          addProductsToCart: {
-            user_errors: Array<{ message: string }>;
-          };
-        }>(ADD_PRODUCTS_TO_CART_MUTATION, {
-          cartId,
-          cartItems: [
-            {
-              sku: fallbackSku,
-              quantity: totalQuantity,
-            },
-          ],
-        });
-
-        if (addProductsData.addProductsToCart.user_errors.length > 0) {
-          throw new Error(addProductsData.addProductsToCart.user_errors[0].message || 'Cannot add fallback product to cart');
-        }
-      } else {
-        throw new Error(firstError);
-      }
+      throw new Error(firstError);
     }
 
     const customer = resolveCustomerInfo(order);

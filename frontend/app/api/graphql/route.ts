@@ -6,12 +6,7 @@ export const runtime = 'nodejs';
 
 const DEFAULT_INTERNAL_MAGENTO_GRAPHQL_URL = 'https://127.0.0.1/graphql';
 const DEFAULT_PUBLIC_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
-const DEFAULT_UPSTREAM_FALLBACK_URL = 'http://app:8000/graphql';
 const CONFIGURED_UPSTREAM_MAGENTO_GRAPHQL_URL = process.env.MAGENTO_GRAPHQL_UPSTREAM_URL?.trim() || '';
-const CONFIGURED_UPSTREAM_FALLBACK_URLS = (process.env.MAGENTO_GRAPHQL_UPSTREAM_FALLBACK_URLS || '')
-  .split(',')
-  .map((item) => item.trim())
-  .filter(Boolean);
 const FRONTEND_HOSTS = new Set([
   'ahphonestore.id.vn',
   'www.ahphonestore.id.vn',
@@ -127,39 +122,8 @@ function getGraphqlProxyTimeoutMs(): number {
   return parsed;
 }
 
-function appendUniqueUrl(target: string[], url: string): void {
-  if (!url) {
-    return;
-  }
-
-  try {
-    const normalized = new URL(url).toString();
-    if (!target.includes(normalized)) {
-      target.push(normalized);
-    }
-  } catch {
-    // Ignore malformed URL entries.
-  }
-}
-
 function resolveMagentoGraphqlUrls(request: NextRequest): string[] {
-  const urls: string[] = [];
-  const primary = resolveMagentoGraphqlUrl(request);
-  appendUniqueUrl(urls, primary);
-
-  const frontendHost = request.nextUrl.hostname.toLowerCase();
-  const internalUpstream = buildInternalUpstream(frontendHost);
-  appendUniqueUrl(urls, internalUpstream);
-  appendUniqueUrl(urls, DEFAULT_UPSTREAM_FALLBACK_URL);
-
-  for (const fallbackUrl of CONFIGURED_UPSTREAM_FALLBACK_URLS) {
-    appendUniqueUrl(urls, fallbackUrl);
-  }
-
-  const publicCandidate = process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL?.trim() || DEFAULT_PUBLIC_MAGENTO_GRAPHQL_URL;
-  appendUniqueUrl(urls, publicCandidate);
-
-  return urls;
+  return [resolveMagentoGraphqlUrl(request)];
 }
 
 function isTransientUpstreamError(error: unknown): boolean {

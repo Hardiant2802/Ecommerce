@@ -135,6 +135,167 @@ function applyOptimisticQuantity(cart: Cart, cartItemId: number, nextQuantity: n
   };
 }
 
+type UpdatedCartSnapshotItem = {
+  id: string | number;
+  quantity?: number;
+  prices?: {
+    row_total?: {
+      value?: number;
+    };
+  };
+};
+
+interface UpdatedCartSnapshot {
+  total_quantity?: number;
+  items?: UpdatedCartSnapshotItem[];
+  prices?: {
+    grand_total?: {
+      value?: number;
+      currency?: string;
+    };
+  };
+}
+
+function applyServerCartSnapshot(cart: Cart, snapshot: UpdatedCartSnapshot): Cart {
+  const snapshotItems = Array.isArray(snapshot.items) ? snapshot.items : [];
+  const snapshotById = new Map<number, UpdatedCartSnapshotItem>();
+
+  for (const item of snapshotItems) {
+    const parsedId = Number(item.id);
+    if (Number.isInteger(parsedId) && parsedId > 0) {
+      snapshotById.set(parsedId, item);
+    }
+  }
+
+  const nextItems = cart.items.map((item) => {
+    const parsedId = Number(item.id);
+    const updated = snapshotById.get(parsedId);
+    if (!updated) {
+      return item;
+    }
+
+    const nextQuantity = Math.max(1, Math.floor(Number(updated.quantity ?? item.quantity)));
+    const rowTotalValue = Number(updated.prices?.row_total?.value);
+
+    return {
+      ...item,
+      quantity: nextQuantity,
+      prices: {
+        ...item.prices,
+        row_total: {
+          ...item.prices.row_total,
+          value: Number.isFinite(rowTotalValue) ? rowTotalValue : item.prices.row_total.value,
+        },
+      },
+    };
+  });
+
+  const recalculatedSubtotal = nextItems.reduce((sum, item) => {
+    return sum + getUnitPrice(item) * Math.max(1, Math.floor(item.quantity));
+  }, 0);
+
+  const grandTotalValue = Number(snapshot.prices?.grand_total?.value);
+  const grandTotalCurrency = snapshot.prices?.grand_total?.currency;
+  const nextTotalQuantity = Number(snapshot.total_quantity);
+
+  return {
+    ...cart,
+    items: nextItems,
+    total_quantity: Number.isFinite(nextTotalQuantity)
+      ? Math.max(0, Math.floor(nextTotalQuantity))
+      : nextItems.reduce((sum, item) => sum + Math.max(1, Math.floor(item.quantity)), 0),
+    prices: {
+      ...cart.prices,
+      subtotal_excluding_tax: {
+        ...cart.prices.subtotal_excluding_tax,
+        value: recalculatedSubtotal,
+      },
+      grand_total: {
+        ...cart.prices.grand_total,
+        value: Number.isFinite(grandTotalValue) ? grandTotalValue : cart.prices.grand_total.value,
+        currency: grandTotalCurrency || cart.prices.grand_total.currency,
+      },
+    },
+  };
+}
+
+function preserveLockedItemSnapshot(
+  previousCart: Cart | null,
+  incomingCart: Cart,
+  lockedItemIds: Set<number>,
+  queuedQuantities: Map<number, number>
+): Cart {
+  if (!previousCart || lockedItemIds.size === 0) {
+    return incomingCart;
+  }
+
+  const previousItemsById = new Map<number, CartItem>();
+  for (const item of previousCart.items) {
+    const parsedId = Number(item.id);
+    if (Number.isInteger(parsedId) && parsedId > 0) {
+      previousItemsById.set(parsedId, item);
+    }
+  }
+
+  let hasPatchedRows = false;
+  const nextItems = incomingCart.items.map((incomingItem) => {
+    const parsedId = Number(incomingItem.id);
+    if (!Number.isInteger(parsedId) || !lockedItemIds.has(parsedId)) {
+      return incomingItem;
+    }
+
+    const previousItem = previousItemsById.get(parsedId);
+    if (!previousItem) {
+      return incomingItem;
+    }
+
+    const nextQuantity = Math.max(
+      1,
+      Math.floor(queuedQuantities.get(parsedId) ?? previousItem.quantity)
+    );
+    const incomingQuantity = Math.max(1, Math.floor(incomingItem.quantity));
+    if (incomingQuantity === nextQuantity) {
+      return incomingItem;
+    }
+
+    hasPatchedRows = true;
+    const unitPrice = getUnitPrice(previousItem);
+
+    return {
+      ...incomingItem,
+      quantity: nextQuantity,
+      prices: {
+        ...incomingItem.prices,
+        row_total: {
+          ...incomingItem.prices.row_total,
+          value: unitPrice * nextQuantity,
+        },
+      },
+    };
+  });
+
+  if (!hasPatchedRows) {
+    return incomingCart;
+  }
+
+  const recalculatedSubtotal = nextItems.reduce((sum, item) => {
+    return sum + getUnitPrice(item) * Math.max(1, Math.floor(item.quantity));
+  }, 0);
+
+  return {
+    ...incomingCart,
+    items: nextItems,
+    total_quantity: nextItems.reduce((sum, item) => sum + Math.max(1, Math.floor(item.quantity)), 0),
+    prices: {
+      ...incomingCart.prices,
+      subtotal_excluding_tax: {
+        ...incomingCart.prices.subtotal_excluding_tax,
+        value: recalculatedSubtotal,
+      },
+    },
+  };
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const { token: authToken, loading: authLoading } = useAuth();
   const [cart, setCart] = useState<Cart | null>(null);
@@ -142,6 +303,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const updateLocksRef = useRef<Set<number>>(new Set());
   const queuedQuantitiesRef = useRef<Map<number, number>>(new Map());
+  const quantityRequestVersionRef = useRef<Map<number, number>>(new Map());
+  const cartReadRequestVersionRef = useRef(0);
 
   // Keep cart in sync with auth state changes (login/logout) without requiring page reload.
   useEffect(() => {
@@ -194,6 +357,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   /** Load cart của khách hàng đã đăng nhập (không cần cart ID) */
   const loadCustomerCart = async (token: string): Promise<string | null> => {
+    const readRequestVersion = ++cartReadRequestVersionRef.current;
     try {
       const data = await graphqlClient<{ customerCart: Cart }>({
         query: GET_CUSTOMER_CART,
@@ -201,7 +365,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
         cache: 'no-store',
       });
       const customerCart = data.customerCart;
-      setCart(customerCart);
+      if (readRequestVersion === cartReadRequestVersionRef.current) {
+        setCart((previous) => preserveLockedItemSnapshot(
+          previous,
+          customerCart,
+          updateLocksRef.current,
+          queuedQuantitiesRef.current
+        ));
+      }
       setCartId(customerCart.id);
       // Sync cart ID vào localStorage để dùng cho các mutation
       storage.setCartId(customerCart.id);
@@ -215,13 +386,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   /** Load cart khách vãng lai theo cart ID */
   const loadGuestCart = async (id: string) => {
+    const readRequestVersion = ++cartReadRequestVersionRef.current;
     try {
       const data = await graphqlClient<{ cart: Cart }>({
         query: GET_CART,
         variables: { cartId: id },
         cache: 'no-store',
       });
-      setCart(data.cart);
+      if (readRequestVersion === cartReadRequestVersionRef.current) {
+        setCart((previous) => preserveLockedItemSnapshot(
+          previous,
+          data.cart,
+          updateLocksRef.current,
+          queuedQuantitiesRef.current
+        ));
+      }
     } catch (error) {
       if (isCartNotFoundError(error)) {
         // Cart thực sự không tồn tại trong Magento -> tạo cart mới
@@ -393,17 +572,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     // Prevent duplicate/racing updates on the same item when user taps +/- quickly.
     if (updateLocksRef.current.has(parsedItemId)) {
-      queuedQuantitiesRef.current.set(parsedItemId, parsedQuantity);
-      setCart((prev) => (prev ? applyOptimisticQuantity(prev, parsedItemId, parsedQuantity) : prev));
       return;
     }
     updateLocksRef.current.add(parsedItemId);
 
-    // Update UI immediately so +/- feels instant, then reconcile with server response.
-    setCart((prev) => (prev ? applyOptimisticQuantity(prev, parsedItemId, parsedQuantity) : prev));
-
     const executeUpdate = async (targetCartId: string) => {
-      await graphqlClient({
+      const data = await graphqlClient<{
+        updateCartItems: {
+          cart: UpdatedCartSnapshot;
+        };
+      }>({
         query: UPDATE_CART_ITEMS,
         variables: {
           cartId: targetCartId,
@@ -411,13 +589,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
         },
         token: authToken || undefined,
       });
+
+      return data.updateCartItems.cart;
     };
 
     try {
-      await executeUpdate(activeCartId);
-      void refreshCart().catch((refreshError) => {
-        console.error('Background cart refresh failed:', refreshError);
-      });
+      const updatedSnapshot = await executeUpdate(activeCartId);
+      // Invalidate in-flight cart reads so stale responses cannot overwrite this update.
+      cartReadRequestVersionRef.current += 1;
+      setCart((prev) => (prev ? applyServerCartSnapshot(prev, updatedSnapshot) : prev));
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
@@ -433,10 +613,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         if (recoveredCustomerCartId) {
           activeCartId = recoveredCustomerCartId;
           setCartId(recoveredCustomerCartId);
-          await executeUpdate(activeCartId);
-          void refreshCart().catch((refreshError) => {
-            console.error('Background cart refresh failed:', refreshError);
-          });
+          const updatedSnapshot = await executeUpdate(activeCartId);
+          cartReadRequestVersionRef.current += 1;
+          setCart((prev) => (prev ? applyServerCartSnapshot(prev, updatedSnapshot) : prev));
           return;
         }
       }
@@ -448,15 +627,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       throw error;
     } finally {
       updateLocksRef.current.delete(parsedItemId);
-
-      const queuedQuantity = queuedQuantitiesRef.current.get(parsedItemId);
-      if (typeof queuedQuantity === 'number' && queuedQuantity !== parsedQuantity) {
-        queuedQuantitiesRef.current.delete(parsedItemId);
-        void updateQuantity(cartItemId, queuedQuantity);
-        return;
-      }
-
-      queuedQuantitiesRef.current.delete(parsedItemId);
     }
   };
 

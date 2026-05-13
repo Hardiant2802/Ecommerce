@@ -1282,19 +1282,21 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   const fullDescriptionHtml = trustedFullDescription ? rawFullDescription : buildAccurateFullDescription(product, formattedPrice, inStock);
   const generalIntroHtml = trustedShortDescription ? rawShortDescription : buildGeneralIntro(product, formattedPrice, inStock);
 
-  // Build gallery from media_gallery + fallback to image
+  // Build gallery from media_gallery and role image only.
   const gallery: string[] = (product.media_gallery || [])
     .filter(m => m?.url && !m.disabled)
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
     .map(m => withImageVersion(m.url, product.updated_at));
 
-  if (gallery.length === 0) {
-    gallery.push(getPrimaryProductImageUrl(product));
+  if (gallery.length === 0 && product.image?.url) {
+    const roleImage = withImageVersion(product.image.url, product.updated_at);
+    if (roleImage) {
+      gallery.push(roleImage);
+    }
   }
 
   const handleImgError = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const t = e.currentTarget;
-    if (!t.src.endsWith('/images/placeholder.svg')) t.src = '/images/placeholder.svg';
+    e.currentTarget.style.visibility = 'hidden';
   };
 
   const { brand: detectedBrand } = detectBrandModel(product.name);
@@ -1311,12 +1313,16 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
             <div className="p-6 border-r border-gray-100">
               {/* Main image */}
               <div className="aspect-square bg-gray-50 rounded-lg overflow-hidden mb-3 flex items-center justify-center">
-                <img
-                  src={gallery[activeImage] || '/images/placeholder.svg'}
-                  alt={product.name}
-                  className="w-full h-full object-contain p-4"
-                  onError={handleImgError}
-                />
+                {gallery[activeImage] ? (
+                  <img
+                    src={gallery[activeImage]}
+                    alt={product.name}
+                    className="w-full h-full object-contain p-4"
+                    onError={handleImgError}
+                  />
+                ) : (
+                  <div className="text-xs text-gray-400">Không có ảnh sản phẩm</div>
+                )}
               </div>
 
               {/* Thumbnails */}

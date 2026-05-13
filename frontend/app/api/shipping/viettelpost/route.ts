@@ -1,10 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const VTP_TOKEN = 'F530940781AF6035B1845FAA8C3D9C3E';
-const VTP_API = 'https://partner.viettelpost.vn/v2';
+const VTP_TOKEN = process.env.VTP_TOKEN?.trim() || '';
+const VTP_API = process.env.VTP_API_BASE_URL?.trim() || 'https://partner.viettelpost.vn/v2';
+
+function parseUnknownJsonPayload(raw: string): unknown {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { message: raw };
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
+    if (!VTP_TOKEN) {
+      return NextResponse.json(
+        { error: 'Thiếu cấu hình VTP_TOKEN trong env.' },
+        { status: 500 },
+      );
+    }
+
     const { action, payload } = await request.json();
 
     let endpoint = '';
@@ -40,8 +59,9 @@ export async function POST(request: NextRequest) {
     }
 
     const response = await fetch(endpoint, options);
-    const data = await response.json();
-    return NextResponse.json(data);
+    const responseText = await response.text();
+    const data = parseUnknownJsonPayload(responseText);
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
     return NextResponse.json({ error: 'Lỗi kết nối Viettel Post' }, { status: 500 });
   }

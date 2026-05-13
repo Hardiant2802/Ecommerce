@@ -57,7 +57,7 @@ export default function LoginPage() {
       });
       router.replace('/');
     } catch (error) {
-      setServerError(error instanceof Error ? error.message : 'Login failed. Please try again.');
+      setServerError(error instanceof Error ? error.message : 'Đăng nhập thất bại. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -68,9 +68,9 @@ export default function LoginPage() {
       <div className="max-w-md w-full">
         <div className="bg-white rounded-lg shadow-sm p-8">
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Sign In</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Đăng nhập</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Welcome back! Please sign in to your account.
+              Chào mừng bạn quay lại! Vui lòng đăng nhập vào tài khoản.
             </p>
           </div>
 
@@ -82,24 +82,24 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <Input
-              label="Email Address"
+              label="Địa chỉ email"
               type="email"
               name="email"
               value={formData.email}
               onChange={handleChange}
               error={errors.email}
-              placeholder="your@email.com"
+              placeholder="ban@email.com"
               required
             />
 
             <Input
-              label="Password"
+              label="Mật khẩu"
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
               error={errors.password}
-              placeholder="Enter your password"
+              placeholder="Nhập mật khẩu của bạn"
               required
             />
 
@@ -109,15 +109,15 @@ export default function LoginPage() {
               size="lg"
               loading={loading || authLoading}
             >
-              Sign In
+              Đăng nhập
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
+              Bạn chưa có tài khoản?{' '}
               <Link href="/register" className="text-primary-600 hover:text-primary-700 font-medium">
-                Sign up
+                Đăng ký
               </Link>
             </p>
           </div>

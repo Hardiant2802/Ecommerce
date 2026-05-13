@@ -75,6 +75,20 @@ services:
 
   redis:
     image: valkey/valkey:8.1-alpine
+    command:
+      - valkey-server
+      - --rename-command
+      - REPLICAOF
+      - ""
+      - --rename-command
+      - SLAVEOF
+      - ""
+    healthcheck:
+      test: "redis-cli ROLE | head -n 1 | grep -q '^master$' || exit 1"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
     #ports:
     #  - "6379:6379"
 
@@ -144,8 +158,6 @@ services:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run
     env_file: env/cloudflare.env
-    environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
     depends_on:
       app:
         condition: service_healthy

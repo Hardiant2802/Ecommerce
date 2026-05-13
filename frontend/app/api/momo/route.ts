@@ -2,14 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 
 const MOMO_CONFIG = {
-  partnerCode: 'MOMO',
-  accessKey: 'F8BBA842ECF85',
-  secretKey: 'K951B6PE1waDMi640xX08PD3vg6EkVlz',
-  endpoint: 'https://test-payment.momo.vn/v2/gateway/api/create',
+  partnerCode: process.env.MOMO_PARTNER_CODE?.trim() || '',
+  accessKey: process.env.MOMO_ACCESS_KEY?.trim() || '',
+  secretKey: process.env.MOMO_SECRET_KEY?.trim() || '',
+  endpoint: process.env.MOMO_ENDPOINT?.trim() || 'https://test-payment.momo.vn/v2/gateway/api/create',
 };
 
 export async function POST(request: NextRequest) {
   try {
+    if (!MOMO_CONFIG.partnerCode || !MOMO_CONFIG.accessKey || !MOMO_CONFIG.secretKey) {
+      return NextResponse.json(
+        { error: 'Thiếu cấu hình MoMo trong env (MOMO_PARTNER_CODE, MOMO_ACCESS_KEY, MOMO_SECRET_KEY).' },
+        { status: 500 },
+      );
+    }
+
     const { amount, orderId, orderInfo } = await request.json();
 
     const requestId = `${orderId}-${Date.now()}`;

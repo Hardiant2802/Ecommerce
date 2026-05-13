@@ -1,12 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const GHN_TOKEN = '055e17d4-4aa9-11f1-a973-aee5264794df';
-const GHN_SHOP_ID = 200229;
-const GHN_FROM_DISTRICT_ID = 1485; // Quận Cầu Giấy, Hà Nội
-const GHN_API = 'https://dev-online-gateway.ghn.vn/shiip/public-api';
+const GHN_API = process.env.GHN_API_BASE_URL?.trim() || 'https://dev-online-gateway.ghn.vn/shiip/public-api';
+const GHN_TOKEN = process.env.GHN_TOKEN?.trim() || '';
+const GHN_SHOP_ID = Number(process.env.GHN_SHOP_ID || 0);
+const GHN_FROM_DISTRICT_ID = Number(process.env.GHN_FROM_DISTRICT_ID || 0);
+
+function parseUnknownJsonPayload(raw: string): unknown {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { message: raw };
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
+    if (!GHN_TOKEN || !Number.isFinite(GHN_SHOP_ID) || GHN_SHOP_ID <= 0) {
+      return NextResponse.json(
+        { error: 'Thiếu cấu hình GHN. Vui lòng kiểm tra GHN_TOKEN và GHN_SHOP_ID trong env.' },
+        { status: 500 },
+      );
+    }
+
     const { action, payload } = await request.json();
 
     let endpoint = '';
@@ -28,6 +47,13 @@ export async function POST(request: NextRequest) {
       ? { ...payload, from_district_id: GHN_FROM_DISTRICT_ID }
       : payload || {};
 
+    if (action === 'calculate-fee' && (!Number.isFinite(GHN_FROM_DISTRICT_ID) || GHN_FROM_DISTRICT_ID <= 0)) {
+      return NextResponse.json(
+        { error: 'Thiếu cấu hình GHN_FROM_DISTRICT_ID trong env.' },
+        { status: 500 },
+      );
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -38,8 +64,10 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    const responseText = await response.text();
+    const data = parseUnknownJsonPayload(responseText);
+
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
     return NextResponse.json({ error: 'Lỗi kết nối GHN' }, { status: 500 });
   }
