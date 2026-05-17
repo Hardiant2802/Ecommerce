@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 
 interface VideoItem {
   id: string;
@@ -19,6 +19,9 @@ const HERO_ITEM_LIMIT = 12;
 const HOUR_REFRESH_MS = 60 * 60 * 1000;
 const BANNER_ROTATE_MS = 5_000;
 const BANNER_SLIDE_MS = 1400;
+const MOBILE_BANNER_SLIDE_MS = 620;
+const MOBILE_BREAKPOINT_PX = 1024;
+const SWIPE_THRESHOLD_PX = 44;
 const BANNER_SWIPE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 function getCurrentHourSlotKey(date: Date = new Date()): string {
@@ -49,6 +52,26 @@ function normalizeVideos(input: VideoItem[]): VideoItem[] {
     }));
 }
 
+function getBannerImageSrc(video: VideoItem, isMobileViewport: boolean): string {
+  if (!video?.id) {
+    return video?.banner || '';
+  }
+
+  if (isMobileViewport) {
+    return `https://img.youtube.com/vi/${video.id}/hqdefault.jpg`;
+  }
+
+  return video.banner || `https://img.youtube.com/vi/${video.id}/maxresdefault.jpg`;
+}
+
+function getThumbnailImageSrc(video: VideoItem): string {
+  if (!video?.id) {
+    return video?.banner || '';
+  }
+
+  return `https://img.youtube.com/vi/${video.id}/mqdefault.jpg`;
+}
+
 export default function HeroVideo() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
@@ -63,7 +86,14 @@ export default function HeroVideo() {
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [thumbnailLoading, setThumbnailLoading] = useState<Record<string, boolean>>({});
   const [bannerLoading, setBannerLoading] = useState<Record<string, boolean>>({});
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isDraggingBanner, setIsDraggingBanner] = useState(false);
+  const [dragOffsetX, setDragOffsetX] = useState(0);
   const pendingBannerIdRef = useRef<string | null>(null);
+  const bannerTouchStartXRef = useRef<number | null>(null);
+  const bannerTouchDeltaXRef = useRef(0);
+  const bannerTouchDirectionRef = useRef<1 | -1 | null>(null);
+  const isDraggingBannerRef = useRef(false);
 
   const visibleVideos = useMemo(
     () => normalizeVideos(videos).slice(0, HERO_ITEM_LIMIT),
@@ -77,6 +107,170 @@ export default function HeroVideo() {
   const pendingBannerVideo =
     visibleVideos.find((video) => video.id === pendingBannerVideoId) || null;
   const highlightedVideoId = selectedVideo?.id || '';
+  const bannerSlideMs = isMobileViewport ? MOBILE_BANNER_SLIDE_MS : BANNER_SLIDE_MS;
+  const isPendingBannerLoaded = pendingBannerVideoId
+    ? bannerLoading[pendingBannerVideoId] === false
+    : false;
+  const activeBannerSrc = activeBannerVideo
+    ? getBannerImageSrc(activeBannerVideo, isMobileViewport)
+    : '';
+  const pendingBannerSrc = pendingBannerVideo
+    ? getBannerImageSrc(pendingBannerVideo, isMobileViewport)
+    : '';
+
+  const activeDragOffsetPercent = isDraggingBanner
+    ? Math.max(-100, Math.min(100, dragOffsetX))
+    : 0;
+
+  const pendingDragOffsetPercent = isDraggingBanner
+    ? Math.max(-100, Math.min(100, dragOffsetX + ((bannerTouchDirectionRef.current || 1) * 100)))
+    : 0;
+
+  const resolveAdjacentBannerId = (baseVideoId: string, step: 1 | -1): string | null => {
+    if (!baseVideoId || visibleVideos.length <= 1) {
+      return null;
+    }
+
+    const baseIndex = visibleVideos.findIndex((video) => video.id === baseVideoId);
+    const currentIndex = baseIndex >= 0 ? baseIndex : 0;
+    const nextIndex = (currentIndex + step + visibleVideos.length) % visibleVideos.length;
+    const nextVideo = visibleVideos[nextIndex];
+
+    if (!nextVideo || nextVideo.id === baseVideoId) {
+      return null;
+    }
+
+    return nextVideo.id;
+  };
+
+  const queueBannerByStep = (step: 1 | -1) => {
+    if (visibleVideos.length <= 1 || pendingBannerVideoId || isBannerSliding) {
+      return;
+    }
+
+    const baseVideoId = bannerVideoId || visibleVideos[0]?.id;
+    if (!baseVideoId) {
+      return;
+    }
+
+    const currentIndex = visibleVideos.findIndex((video) => video.id === baseVideoId);
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (baseIndex + step + visibleVideos.length) % visibleVideos.length;
+    const nextId = visibleVideos[nextIndex]?.id;
+
+    if (!nextId || nextId === baseVideoId) {
+      return;
+    }
+
+    setPendingBannerVideoId(nextId);
+  };
+
+  const handleBannerTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport || isBannerSliding || visibleVideos.length <= 1) {
+      return;
+    }
+
+    if (event.touches.length !== 1) {
+      bannerTouchStartXRef.current = null;
+      bannerTouchDeltaXRef.current = 0;
+      bannerTouchDirectionRef.current = null;
+      return;
+    }
+
+    bannerTouchStartXRef.current = event.touches[0].clientX;
+    bannerTouchDeltaXRef.current = 0;
+    bannerTouchDirectionRef.current = null;
+    setIsDraggingBanner(true);
+    setDragOffsetX(0);
+  };
+
+  const handleBannerTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    const startX = bannerTouchStartXRef.current;
+    if (!isDraggingBanner || startX === null || event.touches.length !== 1) {
+      return;
+    }
+
+    const deltaX = event.touches[0].clientX - startX;
+    bannerTouchDeltaXRef.current = deltaX;
+
+    if (Math.abs(deltaX) < 6) {
+      return;
+    }
+
+    const direction: 1 | -1 = deltaX < 0 ? 1 : -1;
+    bannerTouchDirectionRef.current = direction;
+
+    const baseVideoId = bannerVideoId || visibleVideos[0]?.id || null;
+    if (!baseVideoId) {
+      return;
+    }
+
+    const nextId = resolveAdjacentBannerId(baseVideoId, direction);
+    if (!nextId) {
+      return;
+    }
+
+    if (pendingBannerVideoId !== nextId) {
+      setPendingBannerVideoId(nextId);
+    }
+
+    const width = Math.max(1, event.currentTarget.clientWidth || 1);
+    const offsetPercent = (deltaX / width) * 100;
+    setDragOffsetX(Math.max(-100, Math.min(100, offsetPercent)));
+  };
+
+  const handleBannerTouchEnd = () => {
+    const wasDragging = isDraggingBanner;
+    const deltaX = bannerTouchDeltaXRef.current;
+    const direction = bannerTouchDirectionRef.current;
+
+    bannerTouchStartXRef.current = null;
+    bannerTouchDeltaXRef.current = 0;
+    bannerTouchDirectionRef.current = null;
+    setIsDraggingBanner(false);
+
+    if (!wasDragging) {
+      return;
+    }
+
+    const shouldAdvance = Math.abs(deltaX) >= SWIPE_THRESHOLD_PX;
+    if (!shouldAdvance || !direction) {
+      setPendingBannerVideoId(null);
+      setDragOffsetX(0);
+      return;
+    }
+
+    setDragOffsetX(0);
+  };
+
+  useEffect(() => {
+    isDraggingBannerRef.current = isDraggingBanner;
+  }, [isDraggingBanner]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
+    const updateViewportMode = () => {
+      setIsMobileViewport(mediaQuery.matches);
+    };
+
+    updateViewportMode();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateViewportMode);
+      return () => {
+        mediaQuery.removeEventListener('change', updateViewportMode);
+      };
+    }
+
+    mediaQuery.addListener(updateViewportMode);
+    return () => {
+      mediaQuery.removeListener(updateViewportMode);
+    };
+  }, []);
 
   useEffect(() => {
     setThumbnailLoading((previous) => {
@@ -96,8 +290,9 @@ export default function HeroVideo() {
     });
 
     for (const video of visibleVideos) {
+      const bannerSrc = getBannerImageSrc(video, isMobileViewport);
       const preload = new Image();
-      preload.src = video.banner;
+      preload.src = bannerSrc;
       preload.onload = () => {
         setBannerLoading((current) => ({
           ...current,
@@ -111,7 +306,7 @@ export default function HeroVideo() {
         }));
       };
     }
-  }, [visibleVideos]);
+  }, [isMobileViewport, visibleVideos]);
 
   useEffect(() => {
     if (visibleVideos.length === 0) {
@@ -153,6 +348,14 @@ export default function HeroVideo() {
       return;
     }
 
+    if (isDraggingBanner) {
+      return;
+    }
+
+    if (!isPendingBannerLoaded) {
+      return;
+    }
+
     if (pendingBannerIdRef.current === pendingBannerVideoId) {
       return;
     }
@@ -177,13 +380,31 @@ export default function HeroVideo() {
       setIsBannerSliding(false);
       setIsBannerSlideActive(false);
       pendingBannerIdRef.current = null;
-    }, BANNER_SLIDE_MS);
+    }, bannerSlideMs);
 
     return () => {
       cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
-  }, [activeBannerVideo?.id, pendingBannerVideoId, visibleVideos]);
+  }, [activeBannerVideo?.id, bannerSlideMs, isDraggingBanner, isPendingBannerLoaded, pendingBannerVideoId, visibleVideos]);
+
+  useEffect(() => {
+    if (!isBannerSliding || !pendingBannerVideoId) {
+      return;
+    }
+
+    // Safety net: if a transition is interrupted unexpectedly, release pending state.
+    const watchdog = setTimeout(() => {
+      setPendingBannerVideoId(null);
+      setIsBannerSliding(false);
+      setIsBannerSlideActive(false);
+      pendingBannerIdRef.current = null;
+    }, bannerSlideMs * 2);
+
+    return () => {
+      clearTimeout(watchdog);
+    };
+  }, [bannerSlideMs, isBannerSliding, pendingBannerVideoId]);
 
   useEffect(() => {
     if (activeBannerVideo?.id && !isBannerVisible) {
@@ -210,6 +431,10 @@ export default function HeroVideo() {
 
     const timer = setInterval(() => {
       setPendingBannerVideoId((currentPending) => {
+        if (isDraggingBannerRef.current || isBannerSliding) {
+          return currentPending;
+        }
+
         if (currentPending) {
           return currentPending;
         }
@@ -232,7 +457,7 @@ export default function HeroVideo() {
     return () => {
       clearInterval(timer);
     };
-  }, [bannerVideoId, visibleVideos]);
+  }, [bannerVideoId, isBannerSliding, visibleVideos]);
 
   useEffect(() => {
     let cancelled = false;
@@ -299,36 +524,59 @@ export default function HeroVideo() {
     <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[400px]">
       {/* Cột Trái: Banner */}
       <div className="w-full lg:w-[65%] h-[200px] sm:h-[300px] lg:h-full rounded-xl overflow-hidden shadow-sm bg-gray-100">
-        <div className="relative w-full h-full">
+        <div
+          className="relative w-full h-full touch-pan-y"
+          onTouchStart={handleBannerTouchStart}
+          onTouchMove={handleBannerTouchMove}
+          onTouchEnd={handleBannerTouchEnd}
+          onTouchCancel={handleBannerTouchEnd}
+        >
           {activeBannerVideo && (
             <img
-              src={activeBannerVideo.banner}
+              src={activeBannerSrc}
               alt={activeBannerVideo.title}
               className="absolute inset-0 w-full h-full object-cover"
+              draggable={false}
+              decoding="async"
               style={{
-                transform: isBannerSliding
+                transform: isDraggingBanner
+                  ? `translate3d(${activeDragOffsetPercent}%, 0, 0)`
+                  : isBannerSliding
                   ? (isBannerSlideActive
                     ? `translate3d(${bannerSlideDirection * -100}%, 0, 0)`
                     : 'translate3d(0, 0, 0)')
                   : 'translate3d(0, 0, 0)',
-                transition: isBannerSliding ? `transform ${BANNER_SLIDE_MS}ms ${BANNER_SWIPE_EASING}` : 'none',
-                willChange: isBannerSliding ? 'transform' : 'auto',
+                transition: isDraggingBanner
+                  ? 'none'
+                  : isBannerSliding
+                    ? `transform ${bannerSlideMs}ms ${BANNER_SWIPE_EASING}`
+                    : 'none',
+                willChange: (isBannerSliding || isDraggingBanner) ? 'transform' : 'auto',
               }}
             />
           )}
           {pendingBannerVideo ? (
             <img
-              src={pendingBannerVideo.banner}
+              src={pendingBannerSrc}
               alt={pendingBannerVideo.title}
-              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${(isLibraryLoading || !isBannerVisible || bannerLoading[pendingBannerVideo.id]) ? 'opacity-0' : 'opacity-100'}`}
+              className="absolute inset-0 w-full h-full object-cover"
+              draggable={false}
+              decoding="async"
               style={{
-                transform: isBannerSliding
+                transform: isDraggingBanner
+                  ? `translate3d(${pendingDragOffsetPercent}%, 0, 0)`
+                  : isBannerSliding
                   ? (isBannerSlideActive
                     ? 'translate3d(0, 0, 0)'
                     : `translate3d(${bannerSlideDirection * 100}%, 0, 0)`)
                   : `translate3d(${bannerSlideDirection * 100}%, 0, 0)`,
-                transition: isBannerSliding ? `transform ${BANNER_SLIDE_MS}ms ${BANNER_SWIPE_EASING}` : 'none',
-                willChange: isBannerSliding ? 'transform' : 'auto',
+                transition: isDraggingBanner
+                  ? 'none'
+                  : isBannerSliding
+                    ? `transform ${bannerSlideMs}ms ${BANNER_SWIPE_EASING}`
+                    : 'none',
+                willChange: (isBannerSliding || isDraggingBanner) ? 'transform' : 'auto',
+                opacity: bannerLoading[pendingBannerVideo.id] ? 0 : 1,
               }}
               onLoad={() => {
                 setBannerLoading((current) => ({
@@ -345,9 +593,11 @@ export default function HeroVideo() {
             />
           ) : !isLibraryLoading && activeBannerVideo ? (
             <img
-              src={activeBannerVideo.banner}
+              src={activeBannerSrc}
               alt={activeBannerVideo.title}
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${(isLibraryLoading || !isBannerVisible || bannerLoading[activeBannerVideo.id]) ? 'opacity-0' : 'opacity-100'}`}
+              draggable={false}
+              decoding="async"
               onLoad={() => {
                 setBannerLoading((current) => ({
                   ...current,
@@ -401,12 +651,12 @@ export default function HeroVideo() {
         </div>
 
         {/* Thumbnails */}
-        <div className="h-[25%] flex gap-2 overflow-x-auto pb-1">
+        <div className="h-[25%] flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory scroll-smooth overscroll-x-contain scrollbar-none [-webkit-overflow-scrolling:touch]">
           {isLibraryLoading
             ? Array.from({ length: 5 }).map((_, index) => (
               <div
                 key={`hero-thumb-skeleton-${index}`}
-                className="relative min-w-[118px] sm:min-w-[130px] flex-1 rounded-lg overflow-hidden border border-white/20 bg-gray-900/55 animate-pulse"
+                className="relative flex-none w-[118px] sm:w-[130px] rounded-lg overflow-hidden border border-white/20 bg-gray-900/55 animate-pulse snap-start"
               >
                 <div className="absolute inset-0 flex items-center justify-center text-white/80">
                   <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
@@ -420,7 +670,7 @@ export default function HeroVideo() {
                   setIsPlayerLoading(true);
                   setSelectedVideoId(video.id);
                 }}
-                className={`relative min-w-[118px] sm:min-w-[130px] flex-1 rounded-lg overflow-hidden cursor-pointer group border-2 transition-all 
+                className={`relative flex-none w-[118px] sm:w-[130px] rounded-lg overflow-hidden cursor-pointer group border-2 transition-all snap-start 
                   ${highlightedVideoId === video.id ? 'border-amber-500' : 'border-transparent'}`}
               >
                 {thumbnailLoading[video.id] && (
@@ -429,9 +679,12 @@ export default function HeroVideo() {
                   </div>
                 )}
                 <img
-                  src={video.banner}
+                  src={getThumbnailImageSrc(video)}
                   className={`w-full h-full object-cover group-hover:opacity-80 transition-opacity ${thumbnailLoading[video.id] ? 'opacity-0' : 'opacity-100'}`}
                   alt={video.title}
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
                   onLoad={() => {
                     setThumbnailLoading((previous) => ({
                       ...previous,

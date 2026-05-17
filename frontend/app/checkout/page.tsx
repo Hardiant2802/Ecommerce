@@ -88,6 +88,20 @@ interface CheckoutItemPriceSource {
   };
 }
 
+interface CheckoutSelectedOptionValueSource {
+  value?: string;
+  label?: string;
+}
+
+interface CheckoutSelectedOptionSource {
+  label?: string;
+  values?: CheckoutSelectedOptionValueSource[];
+}
+
+interface CheckoutSelectedOptionItemSource {
+  customizable_options?: CheckoutSelectedOptionSource[];
+}
+
 function resolveCheckoutUnitPrice(item: CheckoutItemPriceSource): number {
   const fromCartPrice = Number(item?.prices?.price?.value);
   if (Number.isFinite(fromCartPrice) && fromCartPrice >= 0) {
@@ -105,6 +119,27 @@ function resolveCheckoutUnitPrice(item: CheckoutItemPriceSource): number {
   }
 
   return 0;
+}
+
+function resolveCheckoutSelectedOptionLines(item: CheckoutSelectedOptionItemSource): string[] {
+  const options = Array.isArray(item.customizable_options) ? item.customizable_options : [];
+
+  return options
+    .map((option) => {
+      const optionLabel = String(option?.label || '').trim();
+      const values = Array.isArray(option?.values)
+        ? option.values
+            .map((value) => String(value?.label || value?.value || '').trim())
+            .filter(Boolean)
+        : [];
+
+      if (!optionLabel || values.length === 0) {
+        return '';
+      }
+
+      return `${optionLabel}: ${values.join(', ')}`;
+    })
+    .filter(Boolean);
 }
 
 function getSessionStorageSafe(): Storage | null {
@@ -392,7 +427,8 @@ export default function CheckoutPage() {
       .map((item) => {
         const quantity = resolveCheckoutItemQuantity(item.quantity);
         const unitPrice = resolveCheckoutUnitPrice(item);
-        return `${item.id}:${quantity}:${Math.round(unitPrice)}:${item.product.sku}`;
+        const optionSignature = resolveCheckoutSelectedOptionLines(item).join('|');
+        return `${item.id}:${quantity}:${Math.round(unitPrice)}:${item.product.sku}:${optionSignature}`;
       })
       .join('|'),
     singleCheckoutMode,
@@ -838,10 +874,14 @@ export default function CheckoutPage() {
     return checkoutItems.map((item) => {
       const quantity = resolveCheckoutItemQuantity(item.quantity);
       const unitPrice = resolveCheckoutUnitPrice(item);
+      const selectedOptionLines = resolveCheckoutSelectedOptionLines(item);
+      const displayName = selectedOptionLines.length > 0
+        ? `${item.product.name} (${selectedOptionLines.join(' | ')})`
+        : item.product.name;
 
       return {
         sku: item.product.sku,
-        name: item.product.name,
+        name: displayName,
         quantity,
         unitPrice,
         rowTotal: unitPrice * quantity,
@@ -960,6 +1000,38 @@ export default function CheckoutPage() {
       setCreatingBankingOrder(false);
     }
   }, [buildItemsPayload, checkoutFingerprint, currency, grandTotal, internalOrder, isScopeStale, orderNote, user?.email]);
+
+  const createCodOrder = useCallback(async (): Promise<InternalOrderSummary | null> => {
+    try {
+      setOrderError(null);
+      const response = await fetch('/api/orders/internal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          paymentMethod: 'cod',
+          amount: Math.round(grandTotal),
+          currency,
+          note: orderNote,
+          customerEmail: user?.email,
+          items: buildItemsPayload(),
+        }),
+      });
+
+      const data = (await response.json()) as { order?: InternalOrderSummary; error?: string };
+      if (!response.ok || !data.order) {
+        throw new Error(data.error || 'Không thể tạo đơn hàng COD.');
+      }
+
+      setInternalOrder(data.order);
+      return data.order;
+    } catch (error) {
+      console.error('Create COD order failed:', error);
+      setOrderError(error instanceof Error ? error.message : 'Không thể tạo đơn hàng COD.');
+      return null;
+    }
+  }, [buildItemsPayload, currency, grandTotal, orderNote, user?.email]);
 
   const checkPaymentStatus = useCallback(async (
     orderIdToCheck: string,
@@ -1379,6 +1451,15 @@ export default function CheckoutPage() {
         return;
       }
 
+      if (paymentMethod === 'cod') {
+        const codOrder = await createCodOrder();
+        if (!codOrder) {
+          throw new Error('Không thể đồng bộ đơn COD vào Magento.');
+        }
+        setOrderPlaced(true);
+        return;
+      }
+
       setOrderPlaced(true);
     } catch (error) {
       console.error('Place order failed:', error);
@@ -1766,6 +1847,8 @@ export default function CheckoutPage() {
                 {checkoutItems.map((item) => {
                   const quantity = resolveCheckoutItemQuantity(item.quantity);
                   const unitPrice = resolveCheckoutUnitPrice(item);
+                  const selectedOptionLines = resolveCheckoutSelectedOptionLines(item);
+                  const lineCurrency = item.prices?.price?.currency || item.prices?.row_total?.currency || currency;
                   return (
                     <div key={item.id} className="flex items-center gap-4 px-5 py-4">
                       <div className="w-14 h-14 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden">
@@ -1786,10 +1869,13 @@ export default function CheckoutPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 text-sm truncate">{item.product.name}</p>
-                        <p className="text-xs text-gray-500">x{quantity}</p>
+                        {selectedOptionLines.map((line) => (
+                          <p key={`${item.id}-${line}`} className="text-xs text-gray-500 truncate">{line}</p>
+                        ))}
+                        <p className="text-xs text-gray-500">x{quantity} • {formatPrice(unitPrice, lineCurrency)} / sản phẩm</p>
                       </div>
                       <span className="font-semibold text-sm text-gray-900 flex-shrink-0">
-                        {formatPrice(unitPrice * quantity, item.prices.row_total.currency)}
+                        {formatPrice(unitPrice * quantity, lineCurrency)}
                       </span>
                     </div>
                   );

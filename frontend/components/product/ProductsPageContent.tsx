@@ -258,7 +258,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
           </div>
         </div>
 
-        <ProductGrid products={products} loading={loading} />
+          <ProductGrid products={products} loading={loading} currentBrand={activeBrand || undefined} />
 
         {!loading && totalPages > 1 && (
           <div className="flex items-center justify-center gap-3 mt-8">

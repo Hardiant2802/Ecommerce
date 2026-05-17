@@ -36,6 +36,8 @@ const BRAND_ALIASES: Record<string, string> = {
   'phu kien': 'phu-kien',
 };
 
+const LEGACY_BRAND_SUFFIX_REGEX = /-brand-(apple|iphone|samsung|xiaomi|oppo|oneplus|vivo|asus|red-magic)(?:-\d{1,4})?$/;
+
 function normalizeAscii(input: string): string {
   return input
     .toLowerCase()
@@ -49,6 +51,16 @@ function slugifySegment(input: string): string {
   return normalizeAscii(input)
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+export function normalizeProductSlug(raw: string): string {
+  const slug = slugifySegment(raw);
+  if (!slug) {
+    return '';
+  }
+
+  const cleaned = slug.replace(LEGACY_BRAND_SUFFIX_REGEX, '').replace(/-+$/g, '');
+  return cleaned || slug;
 }
 
 function toKnownBrandSlug(raw: string): string | null {
@@ -140,20 +152,56 @@ function inferBrandFromText(product: ProductLike): string {
   return 'phu-kien';
 }
 
+function resolveAccessoryBrand(product: ProductLike): string | null {
+  const categoryText = (product.categories || [])
+    .map((cat) => `${cat.name || ''} ${cat.url_key || ''} ${cat.url_path || ''}`)
+    .join(' ');
+  const normalized = normalizeAscii(`${categoryText} ${product.name || ''}`);
+
+  if (
+    normalized.includes('tai nghe') ||
+    normalized.includes('headphone') ||
+    normalized.includes('earbud') ||
+    normalized.includes('earbuds') ||
+    normalized.includes('airpod')
+  ) {
+    return 'tai-nghe';
+  }
+
+  if (
+    normalized.includes('phu kien') ||
+    normalized.includes('charger') ||
+    normalized.includes('adapter') ||
+    normalized.includes('cap ') ||
+    normalized.includes('cable') ||
+    normalized.includes('magsafe') ||
+    normalized.includes('mag safe') ||
+    normalized.includes('power bank')
+  ) {
+    return 'phu-kien';
+  }
+
+  return null;
+}
+
 export function resolveProductBrandSlug(product: ProductLike): string {
-  return inferBrandFromCategories(product.categories) || inferBrandFromText(product);
+  return (
+    resolveAccessoryBrand(product) ||
+    inferBrandFromCategories(product.categories) ||
+    inferBrandFromText(product)
+  );
 }
 
 export function resolveProductSlug(product: ProductLike): string {
-  if (product.url_key && product.url_key.trim()) {
-    const slug = slugifySegment(product.url_key);
+  if (product.name && product.name.trim()) {
+    const slug = normalizeProductSlug(product.name);
     if (slug) {
       return slug;
     }
   }
 
-  if (product.name && product.name.trim()) {
-    const slug = slugifySegment(product.name);
+  if (product.url_key && product.url_key.trim()) {
+    const slug = normalizeProductSlug(product.url_key);
     if (slug) {
       return slug;
     }
@@ -162,8 +210,8 @@ export function resolveProductSlug(product: ProductLike): string {
   return slugifySegment(product.sku || 'san-pham');
 }
 
-export function buildProductPath(product: ProductLike): string {
-  const brandSlug = resolveProductBrandSlug(product);
+export function buildProductPath(product: ProductLike, brandOverride?: string): string {
+  const brandSlug = brandOverride || resolveProductBrandSlug(product);
   const productSlug = resolveProductSlug(product);
   return `/${brandSlug}/${productSlug}`;
 }

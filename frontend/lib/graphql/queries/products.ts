@@ -99,6 +99,21 @@ export const GET_PRODUCT_DETAIL = `
         short_description {
           html
         }
+        ... on SimpleProduct {
+          options {
+            title
+            required
+            __typename
+            ... on CustomizableDropDownOption {
+              value {
+                uid
+                title
+                sort_order
+                price
+              }
+            }
+          }
+        }
         categories {
           id
           name
@@ -147,6 +162,21 @@ export const GET_PRODUCT_BY_URL_KEY = `
         }
         short_description {
           html
+        }
+        ... on SimpleProduct {
+          options {
+            title
+            required
+            __typename
+            ... on CustomizableDropDownOption {
+              value {
+                uid
+                title
+                sort_order
+                price
+              }
+            }
+          }
         }
         categories {
           id

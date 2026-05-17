@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  cancelStalePendingOrders,
   createInternalOrder,
   getInternalOrder,
   listInternalOrders,
@@ -7,6 +8,7 @@ import {
   updateInternalOrder,
 } from '@/lib/services/internalOrders';
 import { syncInternalOrderToMagento } from '@/lib/services/magentoSync';
+import { syncPaidOrderToMagentoRealtime } from '@/lib/services/magentoRealtimeSync';
 import { findMatchingSePayTransaction } from '@/lib/services/sepayClient';
 import {
   CreateInternalOrderInput,
@@ -131,24 +133,7 @@ function isDuplicateTransactionReason(reason?: string): boolean {
 }
 
 async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder | null> {
-  if (order.status !== 'paid') {
-    return order;
-  }
-
-  const syncResult = await syncInternalOrderToMagento(order);
-  if (!syncResult.success) {
-    return updateInternalOrder(order.id, {
-      magentoSyncStatus: 'failed',
-      magentoSyncError: syncResult.error || 'Magento sync failed',
-    });
-  }
-
-  return updateInternalOrder(order.id, {
-    magentoSyncStatus: 'success',
-    magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
-    magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
-    magentoSyncError: undefined,
-  });
+  return syncPaidOrderToMagentoRealtime(order);
 }
 
 async function reconcileOrder(order: InternalOrder, now: number) {
@@ -240,14 +225,15 @@ export async function GET(request: NextRequest) {
   const requestedLimit = Number(request.nextUrl.searchParams.get('limit') || 50);
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 50;
 
-  const allOrders = await listInternalOrders(limit);
+  const now = Date.now();
+  const allOrdersResult = await cancelStalePendingOrders(await listInternalOrders(limit), now);
+  const allOrders = allOrdersResult.orders;
   const orders = filterOrdersByQuery(allOrders, request);
 
   if (!adminAuthorized || !shouldReconcilePending(request)) {
     return NextResponse.json({ orders });
   }
 
-  const now = Date.now();
   const requestedOrderId = (request.nextUrl.searchParams.get('orderId') || '').trim();
   const reconcileLimit = Math.max(1, Math.min(10, parsePositiveInt(request.nextUrl.searchParams.get('reconcileLimit'), 3)));
   const lookbackMinutes = parsePositiveInt(request.nextUrl.searchParams.get('lookbackMinutes'), 24 * 60);
@@ -334,7 +320,32 @@ export async function POST(request: NextRequest) {
       items: sanitizedItems,
     };
 
-    const order = await createInternalOrder(input);
+    let order = await createInternalOrder(input);
+
+    // COD orders are synced to Magento immediately so admin can see new orders in near realtime.
+    if (paymentMethod === 'cod') {
+      order = (await updateInternalOrder(order.id, {
+        magentoSyncStatus: 'queued',
+        magentoSyncError: undefined,
+      })) || order;
+
+      const syncResult = await syncInternalOrderToMagento(order);
+      if (!syncResult.success) {
+        order = (await updateInternalOrder(order.id, {
+          magentoSyncStatus: 'failed',
+          magentoSyncError: syncResult.error || 'Magento sync failed',
+        })) || order;
+      } else {
+        order = (await updateInternalOrder(order.id, {
+          magentoSyncStatus: 'success',
+          magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
+          magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
+          magentoSyncError: undefined,
+          paymentStatusMessage:
+            order.paymentStatusMessage || 'Don COD da duoc dong bo vao Magento.',
+        })) || order;
+      }
+    }
 
     return NextResponse.json({
       order,

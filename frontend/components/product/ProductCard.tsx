@@ -45,9 +45,10 @@ interface ProductCardProps {
       url_path?: string;
     }>;
   };
+  currentBrand?: string;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({ product, currentBrand }: ProductCardProps) {
   const router = useRouter();
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
@@ -57,7 +58,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   const price = product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
-  const productUrl = buildProductPath(product);
+  const productUrl = buildProductPath(product, currentBrand);
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 
   const handleAddToCart = async (e: React.MouseEvent) => {
@@ -79,6 +80,12 @@ export default function ProductCard({ product }: ProductCardProps) {
         router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
         return;
       }
+
+      if (message.includes('required option') || message.includes("weren't entered")) {
+        router.push(productUrl);
+        return;
+      }
+
       console.error('Error adding to cart:', error);
       alert('Không thể thêm sản phẩm vào giỏ hàng');
     } finally {

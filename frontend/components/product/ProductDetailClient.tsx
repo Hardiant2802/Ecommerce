@@ -1,12 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { graphqlClient } from '@/lib/graphql/client';
-import { GET_PRODUCT_BY_URL_KEY, GET_PRODUCT_DETAIL } from '@/lib/graphql/queries/products';
+import { GET_PRODUCTS, GET_PRODUCT_BY_URL_KEY, GET_PRODUCT_DETAIL, SEARCH_PRODUCTS } from '@/lib/graphql/queries/products';
 import { formatPrice } from '@/lib/utils/formatters';
 import { getPrimaryProductImageUrl, withImageVersion } from '@/lib/utils/image';
-import { buildProductPath } from '@/lib/utils/productRouting';
+import { buildProductPath, normalizeProductSlug, resolveProductBrandSlug } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
 import { useCart, useAuth } from '@/lib/hooks';
 
@@ -15,6 +16,20 @@ interface MediaItem {
   label: string;
   position: number;
   disabled?: boolean;
+}
+
+interface ProductOptionValue {
+  uid: string;
+  title: string;
+  sort_order: number;
+  price: number;
+}
+
+interface ProductCustomizableOption {
+  title?: string;
+  required?: boolean;
+  __typename?: string;
+  value?: ProductOptionValue[];
 }
 
 interface Product {
@@ -33,7 +48,89 @@ interface Product {
   media_gallery?: MediaItem[];
   updated_at?: string;
   stock_status?: string;
+  options?: ProductCustomizableOption[];
   categories?: Array<{ id: string; name: string; url_key?: string }>;
+}
+
+interface ProductSearchCandidate {
+  sku: string;
+  name: string;
+  url_key?: string;
+}
+
+const PHONE_BRAND_CATEGORY_MAP: Record<string, number> = {
+  apple: 55,
+  iphone: 55,
+  samsung: 56,
+  xiaomi: 57,
+  oppo: 58,
+  oneplus: 59,
+  vivo: 60,
+  asus: 61,
+  'red-magic': 62,
+};
+
+const PHONE_BRAND_LABELS: Record<string, string> = {
+  apple: 'Apple',
+  iphone: 'Apple',
+  samsung: 'Samsung',
+  xiaomi: 'Xiaomi',
+  oppo: 'Oppo',
+  oneplus: 'OnePlus',
+  vivo: 'Vivo',
+  asus: 'Asus',
+  'red-magic': 'Red Magic',
+};
+
+function resolvePhoneBrandSlug(product: Product): string | null {
+  const brandSlug = resolveProductBrandSlug(product);
+  if (PHONE_BRAND_CATEGORY_MAP[brandSlug]) {
+    return brandSlug;
+  }
+  return null;
+}
+
+function buildSearchTextFromSlug(rawSlug: string): string {
+  const normalizedSlug = normalizeProductSlug(rawSlug);
+  return normalizedSlug.replace(/-/g, ' ').trim();
+}
+
+function isBrandCompatibleWithRequest(requestedBrand: string | undefined, candidate: ProductSearchCandidate): boolean {
+  if (!requestedBrand) {
+    return true;
+  }
+
+  const candidateBrand = resolveProductBrandSlug(candidate);
+  if (requestedBrand === 'iphone') {
+    return candidateBrand === 'iphone' || candidateBrand === 'apple';
+  }
+
+  if (requestedBrand === 'apple') {
+    return candidateBrand === 'apple' || candidateBrand === 'iphone';
+  }
+
+  return candidateBrand === requestedBrand;
+}
+
+function getVersionOption(product: Product): ProductCustomizableOption | null {
+  const options = Array.isArray(product.options) ? product.options : [];
+  return options.find((option) => {
+    return (
+      option.__typename === 'CustomizableDropDownOption' &&
+      Array.isArray(option.value) &&
+      option.value.length > 0
+    );
+  }) || null;
+}
+
+function getVersionValues(option: ProductCustomizableOption | null): ProductOptionValue[] {
+  if (!option || !Array.isArray(option.value)) {
+    return [];
+  }
+
+  return option.value
+    .filter((value: ProductOptionValue) => Boolean(value?.uid))
+    .sort((a: ProductOptionValue, b: ProductOptionValue) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,6 +1168,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
+  const [selectedVersionUid, setSelectedVersionUid] = useState('');
   const [forceOutOfStock, setForceOutOfStock] = useState(false);
   const [adding, setAdding] = useState(false);
   const [activeImage, setActiveImage] = useState(0);
@@ -1080,20 +1178,29 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   const [mobileCityDetailSpecs, setMobileCityDetailSpecs] = useState<SpecRow[] | null>(null);
   const [mobileCitySourceUrl, setMobileCitySourceUrl] = useState<string | null>(null);
   const [mobileCityError, setMobileCityError] = useState<string | null>(null);
+  const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
+  const [loadingSimilarProducts, setLoadingSimilarProducts] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const similarRequestRef = useRef(0);
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
   const requestedPath = requestedBrand ? `/${requestedBrand}/${slug}` : `/product/${slug}`;
 
   useEffect(() => {
     setForceOutOfStock(false);
+    setSelectedVersionUid('');
     setMobileCitySpecs(null);
     setMobileCityDetailSpecs(null);
     setMobileCitySourceUrl(null);
     setMobileCityError(null);
+    setSimilarProducts([]);
+    setLoadingSimilarProducts(false);
     setShowSpecsModal(false);
     loadProduct();
-    return () => { requestControllerRef.current?.abort(); };
+    return () => {
+      requestControllerRef.current?.abort();
+      similarRequestRef.current += 1;
+    };
   }, [slug]);
 
   // Auto-load MobileCity specs as soon as product is available
@@ -1104,14 +1211,53 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
 
+  useEffect(() => {
+    if (!product) {
+      setSimilarProducts([]);
+      setLoadingSimilarProducts(false);
+      return;
+    }
+
+    if (isAccessoryOrAudioProduct(product)) {
+      setSimilarProducts([]);
+      setLoadingSimilarProducts(false);
+      return;
+    }
+
+    void loadSimilarProducts(product);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product]);
+
+  useEffect(() => {
+    if (!product) {
+      setSelectedVersionUid('');
+      return;
+    }
+
+    const versionOption = getVersionOption(product);
+    const versionValues = getVersionValues(versionOption);
+    if (versionValues.length === 0) {
+      setSelectedVersionUid('');
+      return;
+    }
+
+    setSelectedVersionUid((currentUid) => {
+      if (currentUid && versionValues.some((value) => value.uid === currentUid)) {
+        return currentUid;
+      }
+
+      return versionValues[0].uid;
+    });
+  }, [product]);
+
   // Redirect legacy /product/:slug and mismatched brand paths to canonical product URL.
   useEffect(() => {
     if (!product) return;
-    const canonicalPath = buildProductPath(product);
+    const canonicalPath = buildProductPath(product, requestedBrand);
     if (requestedPath !== canonicalPath) {
       router.replace(canonicalPath);
     }
-  }, [product, requestedPath, router]);
+  }, [product, requestedPath, requestedBrand, router]);
 
   const loadProduct = async () => {
     requestControllerRef.current?.abort();
@@ -1120,17 +1266,33 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
     setLoading(true);
     setProduct(null);
     try {
-      const byUrlKey = await graphqlClient<{ products: { items: Product[] } }>({
-        query: GET_PRODUCT_BY_URL_KEY,
-        variables: { urlKey: slug },
-        cache: 'default',
-        ttlMs: 15 * 1000,
-        signal: controller.signal,
-      });
+      const normalizedSlug = normalizeProductSlug(slug);
 
-      if (byUrlKey.products.items.length > 0) {
-        setProduct(byUrlKey.products.items[0]);
+      const fetchByUrlKey = async (urlKey: string): Promise<Product | null> => {
+        if (!urlKey) return null;
+        const byUrlKey = await graphqlClient<{ products: { items: Product[] } }>({
+          query: GET_PRODUCT_BY_URL_KEY,
+          variables: { urlKey },
+          cache: 'default',
+          ttlMs: 15 * 1000,
+          signal: controller.signal,
+        });
+
+        return byUrlKey.products.items[0] || null;
+      };
+
+      const productByExactUrlKey = await fetchByUrlKey(slug);
+      if (productByExactUrlKey) {
+        setProduct(productByExactUrlKey);
         return;
+      }
+
+      if (normalizedSlug && normalizedSlug !== slug) {
+        const productByNormalizedUrlKey = await fetchByUrlKey(normalizedSlug);
+        if (productByNormalizedUrlKey) {
+          setProduct(productByNormalizedUrlKey);
+          return;
+        }
       }
 
       const bySku = await graphqlClient<{ products: { items: Product[] } }>({
@@ -1143,6 +1305,53 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
 
       if (bySku.products.items.length > 0) {
         setProduct(bySku.products.items[0]);
+        return;
+      }
+
+      const searchText = buildSearchTextFromSlug(slug);
+      if (!searchText) {
+        return;
+      }
+
+      const bySearch = await graphqlClient<{ products: { items: ProductSearchCandidate[] } }>({
+        query: SEARCH_PRODUCTS,
+        variables: {
+          search: searchText,
+          pageSize: 24,
+        },
+        cache: 'default',
+        ttlMs: 15 * 1000,
+        signal: controller.signal,
+      });
+
+      const allCandidates = bySearch.products.items || [];
+      const exactCandidate =
+        allCandidates.find((candidate) => candidate.url_key && normalizeProductSlug(candidate.url_key) === normalizedSlug) ||
+        allCandidates.find((candidate) => normalizeProductSlug(candidate.name) === normalizedSlug) ||
+        null;
+      const brandCandidates = allCandidates.filter((candidate) => isBrandCompatibleWithRequest(requestedBrand, candidate));
+      const lookupPool = exactCandidate ? [exactCandidate] : (brandCandidates.length > 0 ? brandCandidates : allCandidates);
+
+      const matchedCandidate =
+        exactCandidate ||
+        lookupPool.find((candidate) => candidate.url_key && normalizeProductSlug(candidate.url_key) === normalizedSlug) ||
+        lookupPool.find((candidate) => normalizeProductSlug(candidate.name) === normalizedSlug) ||
+        lookupPool[0];
+
+      if (!matchedCandidate?.sku) {
+        return;
+      }
+
+      const byMatchedSku = await graphqlClient<{ products: { items: Product[] } }>({
+        query: GET_PRODUCT_DETAIL,
+        variables: { sku: matchedCandidate.sku },
+        cache: 'default',
+        ttlMs: 15 * 1000,
+        signal: controller.signal,
+      });
+
+      if (byMatchedSku.products.items.length > 0) {
+        setProduct(byMatchedSku.products.items[0]);
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -1154,14 +1363,30 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
 
   const handleAddToCart = async () => {
     if (!product) return;
-    const productUrl = product ? buildProductPath(product) : requestedPath;
+    const productUrl = product ? buildProductPath(product, requestedBrand) : requestedPath;
+    const versionOption = getVersionOption(product);
+    const versionValues = getVersionValues(versionOption);
+    const resolvedVersionUid = versionValues.some((value) => value.uid === selectedVersionUid)
+      ? selectedVersionUid
+      : (versionValues[0]?.uid || '');
+
+    if (versionOption?.required && versionValues.length > 0 && !resolvedVersionUid) {
+      alert('Vui lòng chọn phiên bản trước khi thêm vào giỏ hàng.');
+      return;
+    }
+
     if (!isAuthenticated) {
       router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
       return;
     }
+
+    if (resolvedVersionUid && resolvedVersionUid !== selectedVersionUid) {
+      setSelectedVersionUid(resolvedVersionUid);
+    }
+
     setAdding(true);
     try {
-      await addToCart(product.sku, quantity);
+      await addToCart(product.sku, quantity, resolvedVersionUid ? [resolvedVersionUid] : []);
       alert('Đã thêm vào giỏ hàng!');
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -1228,6 +1453,53 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
     }
   };
 
+  const loadSimilarProducts = async (currentProduct: Product) => {
+    const brandSlug = resolvePhoneBrandSlug(currentProduct);
+    if (!brandSlug) {
+      setSimilarProducts([]);
+      setLoadingSimilarProducts(false);
+      return;
+    }
+
+    const categoryId = PHONE_BRAND_CATEGORY_MAP[brandSlug];
+    const requestId = similarRequestRef.current + 1;
+    similarRequestRef.current = requestId;
+    setLoadingSimilarProducts(true);
+
+    try {
+      const data = await graphqlClient<{ products: { items: Product[] } }>({
+        query: GET_PRODUCTS,
+        variables: {
+          pageSize: 10,
+          currentPage: 1,
+          filter: {
+            category_id: { eq: categoryId },
+          },
+          sort: { name: 'ASC' },
+        },
+        cache: 'default',
+        ttlMs: 20 * 1000,
+      });
+
+      if (requestId !== similarRequestRef.current) return;
+
+      const matchedItems = (data.products.items || [])
+        .filter((item) => item.sku !== currentProduct.sku)
+        .filter((item) => resolvePhoneBrandSlug(item) === brandSlug)
+        .slice(0, 5);
+
+      setSimilarProducts(matchedItems);
+    } catch (error) {
+      if (requestId !== similarRequestRef.current) return;
+      console.error('Failed to load similar products:', error);
+      setSimilarProducts([]);
+    } finally {
+      if (requestId === similarRequestRef.current) {
+        setLoadingSimilarProducts(false);
+      }
+    }
+  };
+
   // ---- Loading skeleton ----
   if (loading) {
     return (
@@ -1261,7 +1533,15 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   }
 
   const price = product.price_range.minimum_price.regular_price;
-  const formattedPrice = formatPrice(price.value, price.currency);
+  const versionOption = getVersionOption(product);
+  const versionValues = getVersionValues(versionOption);
+  const resolvedVersionUid = versionValues.some((value) => value.uid === selectedVersionUid)
+    ? selectedVersionUid
+    : (versionValues[0]?.uid || '');
+  const selectedVersion = versionValues.find((value) => value.uid === resolvedVersionUid) || null;
+  const selectedVersionDelta = Number(selectedVersion?.price ?? 0);
+  const displayPriceValue = price.value + (Number.isFinite(selectedVersionDelta) ? selectedVersionDelta : 0);
+  const formattedPrice = formatPrice(displayPriceValue, price.currency);
   const inStock = product.stock_status !== 'OUT_OF_STOCK' && !forceOutOfStock;
   const isAccessoryProduct = isAccessoryOrAudioProduct(product);
   const generatedSpecs = isAccessoryProduct ? [] : generateSpecs(product);
@@ -1300,6 +1580,8 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   };
 
   const { brand: detectedBrand } = detectBrandModel(product.name);
+  const currentPhoneBrandSlug = resolvePhoneBrandSlug(product);
+  const currentPhoneBrandLabel = currentPhoneBrandSlug ? (PHONE_BRAND_LABELS[currentPhoneBrandSlug] || detectedBrand) : detectedBrand;
 
   return (
     <div className="min-h-screen bg-gray-50 py-6">
@@ -1374,6 +1656,35 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
                   className="text-sm text-gray-600 mb-4 leading-relaxed line-clamp-3"
                   dangerouslySetInnerHTML={{ __html: shortDescriptionHtml }}
                 />
+              )}
+
+              {/* Version selector */}
+              {versionValues.length > 0 && (
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Phiên bản</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {versionValues.map((value) => {
+                      const isActive = resolvedVersionUid === value.uid;
+                      const optionTotalPrice = price.value + Number(value.price || 0);
+
+                      return (
+                        <button
+                          key={value.uid}
+                          type="button"
+                          onClick={() => setSelectedVersionUid(value.uid)}
+                          className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                            isActive
+                              ? 'border-primary-500 bg-primary-50 text-primary-700'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          <p className="text-sm font-semibold">{value.title}</p>
+                          <p className="text-xs text-gray-600 mt-0.5">{formatPrice(optionTotalPrice, price.currency)}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
               {/* Quantity */}
@@ -1477,6 +1788,59 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
 
           {/* Sidebar: Category + Warranty info — 1/3 width */}
           <div className="space-y-4">
+            {/* Similar products */}
+            {currentPhoneBrandSlug && (
+              <div className="bg-white rounded-xl shadow-sm p-5">
+                <h3 className="font-semibold text-gray-900 mb-3 text-sm">Sản phẩm tương tự ({currentPhoneBrandLabel})</h3>
+
+                {loadingSimilarProducts ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 3 }).map((_, idx) => (
+                      <div key={idx} className="animate-pulse flex items-center gap-3">
+                        <div className="w-14 h-14 rounded-md bg-gray-200" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-3 bg-gray-200 rounded w-11/12" />
+                          <div className="h-3 bg-gray-200 rounded w-2/3" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : similarProducts.length > 0 ? (
+                  <div className="space-y-3">
+                    {similarProducts.map((similar) => {
+                      const similarPrice = similar.price_range.minimum_price.regular_price;
+                      const similarImage = getPrimaryProductImageUrl(similar);
+                      const similarPath = buildProductPath(similar);
+
+                      return (
+                        <Link
+                          key={similar.sku}
+                          href={similarPath}
+                          className="flex items-center gap-3 rounded-lg border border-gray-100 p-2 hover:border-primary-200 hover:bg-primary-50/30 transition-colors"
+                        >
+                          <img
+                            src={similarImage}
+                            alt={similar.name}
+                            className="w-14 h-14 object-contain rounded-md bg-gray-50"
+                            loading="lazy"
+                            onError={handleImgError}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 line-clamp-2">{similar.name}</p>
+                            <p className="text-sm font-semibold text-primary-600 mt-1">
+                              {formatPrice(similarPrice.value, similarPrice.currency)}
+                            </p>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500">Chưa có sản phẩm tương tự cùng brand.</p>
+                )}
+              </div>
+            )}
+
             {/* Category */}
             {product.categories && product.categories.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm p-5">

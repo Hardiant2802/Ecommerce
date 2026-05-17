@@ -1,5 +1,6 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import ProductDetailClient from '@/components/product/ProductDetailClient';
+import { normalizeProductSlug } from '@/lib/utils/productRouting';
 
 export const runtime = 'nodejs';
 
@@ -31,5 +32,10 @@ export default async function BrandProductDetailPage({ params }: BrandProductDet
     notFound();
   }
 
-  return <ProductDetailClient slug={slug} brand={brand} />;
+  const normalizedSlug = normalizeProductSlug(slug);
+  if (normalizedSlug && normalizedSlug !== slug) {
+    redirect(`/${brand}/${normalizedSlug}`);
+  }
+
+  return <ProductDetailClient slug={normalizedSlug || slug} brand={brand} />;
 }

@@ -17,7 +17,7 @@ import {
 interface CartContextType {
   cart: Cart | null;
   loading: boolean;
-  addToCart: (sku: string, quantity: number) => Promise<void>;
+  addToCart: (sku: string, quantity?: number, selectedOptions?: string[]) => Promise<void>;
   updateQuantity: (cartItemId: string, quantity: number) => Promise<void>;
   removeItem: (cartItemId: string) => Promise<void>;
   refreshCart: () => Promise<void>;
@@ -425,9 +425,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const addToCart = async (sku: string, quantity: number = 1) => {
+  const addToCart = async (sku: string, quantity: number = 1, selectedOptions: string[] = []) => {
     const authToken = storage.getAuthToken();
     let activeCartId = cart?.id || cartId || storage.getCartId();
+    const normalizedSelectedOptions = Array.from(
+      new Set(
+        selectedOptions
+          .map((optionUid) => String(optionUid || '').trim())
+          .filter(Boolean)
+      )
+    );
 
     // For logged-in users, always prefer customerCart ID to avoid stale guest cart IDs.
     if (authToken) {
@@ -465,7 +472,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
         query: ADD_TO_CART,
         variables: {
           cartId: targetCartId,
-          cartItems: [{ sku, quantity }],
+          cartItems: [
+            {
+              sku,
+              quantity,
+              ...(normalizedSelectedOptions.length > 0
+                ? { selected_options: normalizedSelectedOptions }
+                : {}),
+            },
+          ],
         },
         token: authToken || undefined,
       });

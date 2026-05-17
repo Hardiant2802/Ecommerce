@@ -10,7 +10,7 @@ interface MagentoSyncResult {
   quoteId?: string;
   orderNumber?: string;
   invoiceId?: string;
-  invoiceStatus?: 'created' | 'exists';
+  invoiceStatus?: 'created' | 'exists' | 'skipped';
   error?: string;
 }
 
@@ -248,10 +248,6 @@ async function createAdminTokenFromCredentials(): Promise<string> {
 
 async function getMagentoAdminToken(forceRefresh = false): Promise<string> {
   const staticToken = resolveStaticAdminToken();
-  if (staticToken && !forceRefresh) {
-    return staticToken;
-  }
-
   if (!forceRefresh && cachedAdminToken) {
     return cachedAdminToken;
   }
@@ -466,6 +462,14 @@ function resolvePaymentMethodCode(): string {
 export async function syncInternalOrderToMagento(order: InternalOrder): Promise<MagentoSyncResult> {
   try {
     if (order.magentoOrderNumber) {
+      if (order.status !== 'paid') {
+        return {
+          success: true,
+          orderNumber: order.magentoOrderNumber,
+          invoiceStatus: 'skipped',
+        };
+      }
+
       const invoiceResult = await ensureMagentoOrderInvoiced(order.magentoOrderNumber);
       return {
         success: true,
@@ -554,6 +558,15 @@ export async function syncInternalOrderToMagento(order: InternalOrder): Promise<
 
     if (!orderNumber) {
       throw new Error('Magento did not return order number');
+    }
+
+    if (order.status !== 'paid') {
+      return {
+        success: true,
+        quoteId: cartId,
+        orderNumber,
+        invoiceStatus: 'skipped',
+      };
     }
 
     const invoiceResult = await ensureMagentoOrderInvoiced(orderNumber);

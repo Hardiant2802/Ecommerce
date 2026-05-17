@@ -49,6 +49,7 @@ const PAYMENT_PREFIX = 'payment:';
 const TRANSACTION_PREFIX = 'transaction:';
 const KV_BINDING_NAME = 'AHPHONE_ORDERS';
 const CF_REQUEST_CONTEXT_SYMBOL = Symbol.for('__cloudflare-request-context__');
+const DEFAULT_PENDING_TTL_MINUTES = 15;
 
 function normalizePaymentCode(value: string): string {
 	return (value || '').toUpperCase().trim();
@@ -60,6 +61,18 @@ function compactPaymentCode(value: string): string {
 
 function normalizeTransactionId(value?: string): string {
 	return (value || '').trim();
+}
+
+function getPendingOrderTtlMs(): number {
+	const raw = Number(process.env.INTERNAL_ORDER_PENDING_TTL_MINUTES || DEFAULT_PENDING_TTL_MINUTES);
+	if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_PENDING_TTL_MINUTES * 60 * 1000;
+	return Math.floor(raw) * 60 * 1000;
+}
+
+function isPendingOrderExpired(order: InternalOrder, now: number): boolean {
+	if (order.status !== 'pending') return false;
+	if (order.paymentMethod !== 'banking') return false;
+	return now - order.createdAt >= getPendingOrderTtlMs();
 }
 
 function getStore(): InternalOrderStore {
@@ -808,6 +821,27 @@ export async function updateInternalOrder(
 	return persisted;
 }
 
+export async function cancelStalePendingOrders(
+	orders: InternalOrder[],
+	now = Date.now()
+): Promise<{ orders: InternalOrder[]; cancelled: InternalOrder[] }> {
+	const cancelled: InternalOrder[] = [];
+	const updatedOrders = await Promise.all(
+		orders.map(async (order) => {
+			if (!isPendingOrderExpired(order, now)) return order;
+			const updated = await updateInternalOrder(order.id, {
+				status: 'cancelled' as InternalOrderStatus,
+				paymentStatusMessage: 'Đơn đã bị hủy do quá 15 phút chưa thanh toán.',
+			});
+			const finalOrder = updated || order;
+			cancelled.push(finalOrder);
+			return finalOrder;
+		}),
+	);
+
+	return { orders: updatedOrders, cancelled };
+}
+
 export async function markInternalOrderPaid(input: PaidUpdateInput): Promise<{
 	order: InternalOrder | null;
 	reason?: string;
@@ -815,6 +849,19 @@ export async function markInternalOrderPaid(input: PaidUpdateInput): Promise<{
 	const order = await findInternalOrderByPaymentCode(input.paymentCode);
 	if (!order) {
 		return { order: null, reason: 'ORDER_NOT_FOUND' };
+	}
+
+	const now = Date.now();
+	if (order.status === 'cancelled') {
+		return { order, reason: 'ORDER_CANCELLED' };
+	}
+
+	if (isPendingOrderExpired(order, now)) {
+		const cancelled = await updateInternalOrder(order.id, {
+			status: 'cancelled' as InternalOrderStatus,
+			paymentStatusMessage: 'Đơn đã bị hủy do quá 15 phút chưa thanh toán.',
+		});
+		return { order: cancelled || order, reason: 'ORDER_EXPIRED' };
 	}
 
 	const normalizedTransactionId = normalizeTransactionId(input.gatewayTransactionId);
@@ -855,7 +902,7 @@ export async function markInternalOrderPaid(input: PaidUpdateInput): Promise<{
 		const underpaid = await updateInternalOrder(order.id, {
 			sepayTransactionId: normalizedTransactionId || order.sepayTransactionId,
 			lastPaymentAmountReceived: input.transferAmount,
-			lastPaymentCheckedAt: Date.now(),
+			lastPaymentCheckedAt: now,
 			paymentStatusMessage: `Đã nhận ${input.transferAmount}. Cần thêm ${order.amount - input.transferAmount} để xác nhận đơn.`,
 		});
 
@@ -871,10 +918,10 @@ export async function markInternalOrderPaid(input: PaidUpdateInput): Promise<{
 
 	const updated = await updateInternalOrder(order.id, {
 		status: 'paid' as InternalOrderStatus,
-		paidAt: Date.now(),
+		paidAt: now,
 		sepayTransactionId: normalizedTransactionId || order.sepayTransactionId,
 		lastPaymentAmountReceived: input.transferAmount,
-		lastPaymentCheckedAt: Date.now(),
+		lastPaymentCheckedAt: now,
 		paymentStatusMessage: 'Đã nhận đủ tiền. Hệ thống đang xử lý đơn hàng.',
 		magentoSyncStatus: 'queued' as MagentoSyncStatus,
 		magentoSyncError: 'Waiting Magento sync integration',

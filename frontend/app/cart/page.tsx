@@ -437,11 +437,21 @@ export default function CartPage() {
   }
 
   const originalTotal = safeCartItems.reduce((sum, item) => {
-    const unitPrice = item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
-    return sum + unitPrice * item.quantity;
+    const rowTotal = Number(item.prices?.row_total?.value);
+    if (Number.isFinite(rowTotal) && rowTotal >= 0) {
+      return sum + rowTotal;
+    }
+
+    const unitPrice = Number(item.prices?.price?.value);
+    if (Number.isFinite(unitPrice) && unitPrice >= 0) {
+      return sum + (unitPrice * Math.max(1, Math.floor(item.quantity)));
+    }
+
+    const fallbackUnitPrice = Number(item.product.price_range?.minimum_price?.regular_price?.value || 0);
+    return sum + (fallbackUnitPrice * Math.max(1, Math.floor(item.quantity)));
   }, 0);
-  const originalCurrency = safeCartItems[0]?.product.price_range?.minimum_price?.regular_price?.currency
-    ?? safeCartItems[0]?.prices?.price?.currency
+  const originalCurrency = safeCartItems[0]?.prices?.price?.currency
+    ?? safeCartItems[0]?.product.price_range?.minimum_price?.regular_price?.currency
     ?? 'VND';
 
   const purchasedSection = (

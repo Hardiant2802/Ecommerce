@@ -4,7 +4,7 @@ import {
   markInternalOrderPaid,
   updateInternalOrder,
 } from '@/lib/services/internalOrders';
-import { syncInternalOrderToMagento } from '@/lib/services/magentoSync';
+import { syncPaidOrderToMagentoRealtime } from '@/lib/services/magentoRealtimeSync';
 import { findMatchingSePayTransaction } from '@/lib/services/sepayClient';
 import type { InternalOrder } from '@/types/order';
 
@@ -28,35 +28,9 @@ function getCheckCooldownMs(): number {
   return raw;
 }
 
-function triggerMagentoSync(order: InternalOrder): void {
-  if (order.status !== 'paid') {
-    return;
-  }
-
-  if (order.magentoSyncStatus === 'success') {
-    return;
-  }
-
-  void syncInternalOrderToMagento(order)
-    .then(async (syncResult) => {
-      if (!syncResult.success) {
-        await updateInternalOrder(order.id, {
-          magentoSyncStatus: 'failed',
-          magentoSyncError: syncResult.error || 'Magento sync failed',
-        });
-        return;
-      }
-
-      await updateInternalOrder(order.id, {
-        magentoSyncStatus: 'success',
-        magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
-        magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
-        magentoSyncError: undefined,
-      });
-    })
-    .catch((error) => {
-      console.error('Background Magento sync failed:', error);
-    });
+async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder> {
+  const synced = await syncPaidOrderToMagentoRealtime(order);
+  return synced || order;
 }
 
 function isDuplicateTransactionReason(reason?: string): boolean {
@@ -121,6 +95,8 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
   const verifySePayHistory = options?.verifySePayHistory === true;
 
   if (order.status === 'paid') {
+    const syncedOrder = await ensureMagentoSynced(order);
+
     if (verifySePayHistory) {
       const lookup = await findMatchingSePayTransaction(order);
       const matched = lookup.transaction;
@@ -129,7 +105,6 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
         matched && (!expectedTransactionId || matched.id === expectedTransactionId)
       );
 
-      triggerMagentoSync(order);
       return NextResponse.json({
         ok: true,
         found: true,
@@ -157,16 +132,15 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
           subAccount: transaction.subAccount,
           transactionDate: transaction.transactionDate,
         })),
-        order,
+        order: syncedOrder,
       });
     }
 
-    triggerMagentoSync(order);
     return NextResponse.json({
       ok: true,
       found: true,
       source: 'already_paid',
-      order,
+      order: syncedOrder,
     });
   }
 
@@ -218,7 +192,7 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
   const effectiveOrder = paymentResult.order || order;
 
   if (paymentResult.reason === 'ALREADY_PAID' || isDuplicateTransactionReason(paymentResult.reason)) {
-    triggerMagentoSync(effectiveOrder);
+    const syncedOrder = await ensureMagentoSynced(effectiveOrder);
     return NextResponse.json({
       ok: true,
       found: true,
@@ -230,11 +204,11 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
         content: matched.content,
         transactionDate: matched.transactionDate,
       },
-      order: effectiveOrder,
+      order: syncedOrder,
     });
   }
 
-  triggerMagentoSync(effectiveOrder);
+  const syncedOrder = await ensureMagentoSynced(effectiveOrder);
 
   return NextResponse.json({
     ok: true,
@@ -246,7 +220,7 @@ async function performCheck(order: InternalOrder, options?: PerformCheckOptions)
       content: matched.content,
       transactionDate: matched.transactionDate,
     },
-    order: effectiveOrder,
+    order: syncedOrder,
   });
 }
 

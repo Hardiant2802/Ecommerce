@@ -42,6 +42,17 @@ export const GET_CART = `
             currency
           }
         }
+        ... on SimpleCartItem {
+          customizable_options {
+            label
+            customizable_option_uid
+            values {
+              value
+              label
+              customizable_option_value_uid
+            }
+          }
+        }
       }
       prices {
         grand_total {
@@ -91,6 +102,17 @@ export const GET_CUSTOMER_CART = `
           row_total {
             value
             currency
+          }
+        }
+        ... on SimpleCartItem {
+          customizable_options {
+            label
+            customizable_option_uid
+            values {
+              value
+              label
+              customizable_option_value_uid
+            }
           }
         }
       }

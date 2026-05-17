@@ -4,9 +4,8 @@ import {
   getInternalOrder,
   listInternalOrders,
   markInternalOrderPaid,
-  updateInternalOrder,
 } from '@/lib/services/internalOrders';
-import { syncInternalOrderToMagento } from '@/lib/services/magentoSync';
+import { syncPaidOrderToMagentoRealtime } from '@/lib/services/magentoRealtimeSync';
 import type { InternalOrder } from '@/types/order';
 
 export const runtime = 'nodejs';
@@ -240,35 +239,9 @@ function isDuplicateTransactionReason(reason?: string): boolean {
   return reason === 'DUPLICATE_TRANSACTION' || reason.startsWith('TRANSACTION_ALREADY_USED:');
 }
 
-function triggerMagentoSync(order: InternalOrder): void {
-  if (order.status !== 'paid') {
-    return;
-  }
-
-  if (order.magentoSyncStatus === 'success') {
-    return;
-  }
-
-  void syncInternalOrderToMagento(order)
-    .then(async (syncResult) => {
-      if (syncResult.success) {
-        await updateInternalOrder(order.id, {
-          magentoSyncStatus: 'success',
-          magentoOrderNumber: syncResult.orderNumber || order.magentoOrderNumber,
-          magentoQuoteId: syncResult.quoteId || order.magentoQuoteId,
-          magentoSyncError: undefined,
-        });
-        return;
-      }
-
-      await updateInternalOrder(order.id, {
-        magentoSyncStatus: 'failed',
-        magentoSyncError: syncResult.error || 'Magento sync failed',
-      });
-    })
-    .catch((error) => {
-      console.error('Background Magento sync failed:', error);
-    });
+async function ensureMagentoSynced(order: InternalOrder): Promise<InternalOrder> {
+  const synced = await syncPaidOrderToMagentoRealtime(order);
+  return synced || order;
 }
 
 export async function POST(request: NextRequest) {
@@ -368,8 +341,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (result.reason === 'ALREADY_PAID') {
-      triggerMagentoSync(result.order);
-      const effectiveOrder = result.order;
+      const effectiveOrder = await ensureMagentoSynced(result.order);
 
       return NextResponse.json({
         success: true,
@@ -386,6 +358,9 @@ export async function POST(request: NextRequest) {
     if (isDuplicateTransactionReason(result.reason)) {
       const freshOrder = await getInternalOrder(result.order.id);
       const effectiveOrder = freshOrder || result.order;
+      const syncedOrder = effectiveOrder.status === 'paid'
+        ? await ensureMagentoSynced(effectiveOrder)
+        : effectiveOrder;
 
       return NextResponse.json({
         success: true,
@@ -393,10 +368,10 @@ export async function POST(request: NextRequest) {
         processed: false,
         duplicate: true,
         reason: result.reason,
-        orderId: effectiveOrder.id,
-        status: effectiveOrder.status,
-        magentoSyncStatus: effectiveOrder.magentoSyncStatus,
-        paymentStatusMessage: effectiveOrder.paymentStatusMessage,
+        orderId: syncedOrder.id,
+        status: syncedOrder.status,
+        magentoSyncStatus: syncedOrder.magentoSyncStatus,
+        paymentStatusMessage: syncedOrder.paymentStatusMessage,
       });
     }
 
@@ -413,7 +388,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (result.order.status === 'paid') {
-      triggerMagentoSync(result.order);
+      const syncedOrder = await ensureMagentoSynced(result.order);
+      return NextResponse.json({
+        success: true,
+        ok: true,
+        processed: true,
+        orderId: syncedOrder.id,
+        status: syncedOrder.status,
+        magentoSyncStatus: syncedOrder.magentoSyncStatus,
+        paymentStatusMessage: syncedOrder.paymentStatusMessage,
+      });
     }
 
     return NextResponse.json({
