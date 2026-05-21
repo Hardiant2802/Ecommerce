@@ -1,4 +1,4 @@
-export type InternalPaymentMethod = 'cod' | 'banking' | 'momo';
+export type InternalPaymentMethod = 'cod' | 'banking' | 'momo' | 'vnpay';
 
 export type InternalOrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled';
 

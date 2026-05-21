@@ -147,6 +147,8 @@ export default function CartPage() {
   const [repurchaseError, setRepurchaseError] = useState<string | null>(null);
   const [purchasedOrders, setPurchasedOrders] = useState<InternalOrder[]>([]);
   const [loadingPurchased, setLoadingPurchased] = useState(false);
+  const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
+  const [confirmedOrderIds, setConfirmedOrderIds] = useState<Set<string>>(new Set());
   const pendingCartSyncHandledRef = useRef(false);
 
   const safeCartItems = useMemo(() => {
@@ -164,7 +166,8 @@ export default function CartPage() {
       lastPaidAt: number;
     }>();
 
-    for (const order of purchasedOrders) {
+    // Chỉ lấy từ đơn đã PAID, không tính COD pending
+    for (const order of purchasedOrders.filter((o) => o.status === 'paid')) {
       const paidAt = order.paidAt || order.updatedAt || order.createdAt || 0;
       const items = Array.isArray(order.items) ? order.items : [];
       for (const rawItem of items) {
@@ -216,7 +219,7 @@ export default function CartPage() {
       setLoadingPurchased(true);
       try {
         const response = await fetch(
-          `/api/orders/internal?limit=200&paidOnly=1&customerEmail=${encodeURIComponent(customerEmail)}`,
+          `/api/orders/internal?limit=200&paidOnly=0&customerEmail=${encodeURIComponent(customerEmail)}`,
           { cache: 'no-store' },
         );
 
@@ -454,6 +457,81 @@ export default function CartPage() {
     ?? safeCartItems[0]?.product.price_range?.minimum_price?.regular_price?.currency
     ?? 'VND';
 
+  const codPendingOrders = useMemo(() => {
+    return purchasedOrders.filter(
+      (o) => o.paymentMethod === 'cod' && o.status === 'pending'
+    );
+  }, [purchasedOrders]);
+
+  const handleConfirmDelivery = async (orderId: string) => {
+    setConfirmingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/orders/internal/${encodeURIComponent(orderId)}/confirm-delivery`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setConfirmedOrderIds((prev) => new Set([...prev, orderId]));
+        // Reload purchased orders
+        const customerEmail = user?.email?.trim();
+        if (customerEmail) {
+          const resp = await fetch(`/api/orders/internal?limit=200&paidOnly=0&customerEmail=${encodeURIComponent(customerEmail)}`, { cache: 'no-store' });
+          if (resp.ok) {
+            const d = await resp.json();
+            const orders = Array.isArray(d?.orders) ? (d.orders as InternalOrder[]) : [];
+            setPurchasedOrders(orders.filter((o) => !shouldHidePurchasedOrder(o)));
+          }
+        }
+      } else {
+        alert(data.error || 'Không thể xác nhận. Vui lòng liên hệ hỗ trợ.');
+      }
+    } catch {
+      alert('Lỗi kết nối. Vui lòng thử lại.');
+    } finally {
+      setConfirmingOrderId(null);
+    }
+  };
+
+  const codPendingSection = codPendingOrders.length > 0 ? (
+    <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">📦 Đơn hàng COD đang chờ giao</h2>
+      <div className="space-y-4">
+        {codPendingOrders.map((order) => {
+          const isConfirmed = confirmedOrderIds.has(order.id);
+          const items = Array.isArray(order.items) ? order.items : [];
+          return (
+            <div key={order.id} className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+              <div className="flex flex-wrap justify-between items-start gap-2 mb-3">
+                <div>
+                  <p className="font-semibold text-gray-900">Mã đơn: <span className="text-orange-700">{order.id}</span></p>
+                  <p className="text-xs text-gray-500 mt-0.5">Đặt lúc: {new Date(order.createdAt).toLocaleString('vi-VN')}</p>
+                </div>
+                <span className="text-xs px-2 py-1 rounded-full bg-orange-100 text-orange-700 font-semibold">Chờ giao hàng</span>
+              </div>
+              <div className="space-y-1 mb-3">
+                {items.map((item, idx) => (
+                  <p key={idx} className="text-sm text-gray-700">• {item.name} × {item.quantity}</p>
+                ))}
+              </div>
+              {isConfirmed ? (
+                <div className="w-full text-center py-2 rounded-lg bg-green-100 text-green-700 font-semibold text-sm">
+                  ✅ Đã xác nhận nhận hàng thành công
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleConfirmDelivery(order.id)}
+                  disabled={confirmingOrderId === order.id}
+                  className="w-full bg-orange-600 text-white font-semibold py-2 rounded-lg hover:bg-orange-700 transition-colors text-sm disabled:opacity-60"
+                >
+                  {confirmingOrderId === order.id ? 'Đang xác nhận...' : '✅ Tôi đã nhận được hàng'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
+
   const purchasedSection = (
     <div className="mt-10">
       <div className="bg-white rounded-lg shadow-sm p-6">
@@ -530,6 +608,7 @@ export default function CartPage() {
             </Link>
           </div>
 
+          {codPendingSection}
           {purchasedSection}
         </div>
       </div>
@@ -572,6 +651,7 @@ export default function CartPage() {
           </div>
         </div>
 
+        {codPendingSection}
         {purchasedSection}
       </div>
     </div>

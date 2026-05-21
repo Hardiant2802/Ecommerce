@@ -1,296 +1,176 @@
-# Mobile Phone Store - Next.js Frontend
+# AH Phone Store — Frontend (Next.js 16)
 
-A modern, production-ready ecommerce frontend for a mobile phone store built with Next.js 15 and Magento 2 GraphQL backend.
-
-## 🚀 Features
-
-- **Modern Tech Stack**: Next.js 15 (App Router), TypeScript, Tailwind CSS
-- **Headless Architecture**: Magento 2 GraphQL API integration
-- **Responsive Design**: Mobile-first, optimized for all devices
-- **Product Catalog**: Browse, filter, and sort products by category and price
-- **Shopping Cart**: Add to cart, update quantities, remove items
-- **User Authentication**: Register, login, and protected routes
-- **SEO Optimized**: Next.js metadata, semantic HTML
-- **Performance**: Image optimization, code splitting, lazy loading
-- **State Management**: React Context API with localStorage persistence
-- **Type Safety**: Full TypeScript coverage
-
-## 📦 Project Structure
-
-```
-frontend/
-├── app/                      # Next.js App Router
-│   ├── (auth)/              # Auth route group
-│   ├── products/            # Product listing
-│   ├── product/[slug]/      # Product detail
-│   ├── cart/                # Shopping cart
-│   ├── login/               # Login page
-│   ├── register/            # Register page
-│   ├── layout.tsx           # Root layout
-│   ├── page.tsx             # Home page
-│   └── globals.css          # Global styles
-├── components/              # Reusable components
-│   ├── layout/             # Navbar, Footer
-│   ├── product/            # ProductCard, ProductGrid
-│   ├── cart/               # CartItem, CartSummary
-│   └── ui/                 # Button, Input, Card
-├── lib/                     # Core utilities
-│   ├── graphql/            # GraphQL client & queries
-│   ├── utils/              # Helper functions
-│   └── hooks/              # Custom React hooks
-├── context/                 # React Context providers
-│   ├── CartContext.tsx
-│   └── AuthContext.tsx
-├── types/                   # TypeScript definitions
-└── constants/              # App constants
-```
-
-## 🛠️ Installation
-
-### Prerequisites
-
-- Node.js 18+ and npm
-- Magento 2.4+ backend running (with GraphQL enabled)
-
-### Setup
-
-1. **Clone and navigate to frontend directory**:
-   ```bash
-   cd frontend
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-4. **Update `.env.local` with your Magento backend URL**:
-   ```env
-   NEXT_PUBLIC_MAGENTO_GRAPHQL_URL=http://localhost/graphql
-   NEXT_PUBLIC_MAGENTO_API_URL=http://localhost
-   NEXT_PUBLIC_MAGENTO_STORE_CODE=default
-   NEXT_PUBLIC_SITE_URL=http://localhost:3000
-   NEXT_PUBLIC_SITE_NAME=Mobile Phone Store
-   ```
-
-5. **Run development server**:
-   ```bash
-   npm run dev
-   ```
-
-6. **Open browser**:
-   Navigate to [http://localhost:3000](http://localhost:3000)
-
-## 🔧 Available Scripts
-
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
-- `npm run type-check` - Check TypeScript types
-
-## 🔌 Magento 2 Backend Setup
-
-### GraphQL Endpoint
-
-Ensure your Magento 2 backend has GraphQL enabled at:
-```
-http://your-magento-url/graphql
-```
-
-### Required Magento Configuration
-
-1. **Enable CORS** (if frontend and backend are on different domains):
-   - Configure CORS headers in Magento
-   - Or use a reverse proxy
-
-2. **Store Configuration**:
-   - Ensure store code matches `NEXT_PUBLIC_MAGENTO_STORE_CODE`
-   - Configure base URLs
-
-3. **GraphQL**:
-   - Magento 2.4+ has GraphQL enabled by default
-   - Test with: `http://your-magento-url/graphql`
-
-## 📚 Key GraphQL Queries
-
-### Products
-```graphql
-query GetProducts($pageSize: Int, $currentPage: Int, $filter: ProductAttributeFilterInput) {
-  products(pageSize: $pageSize, currentPage: $currentPage, filter: $filter) {
-    items {
-      id
-      sku
-      name
-      price_range { ... }
-      small_image { url label }
-    }
-  }
-}
-```
-
-### Cart Operations
-```graphql
-mutation CreateEmptyCart {
-  createEmptyCart
-}
-
-mutation AddToCart($cartId: String!, $cartItems: [CartItemInput!]!) {
-  addProductsToCart(cart_id: $cartId, cart_items: $cartItems) {
-    cart { ... }
-  }
-}
-```
-
-### Authentication
-```graphql
-mutation GenerateCustomerToken($email: String!, $password: String!) {
-  generateCustomerToken(email: $email, password: $password) {
-    token
-  }
-}
-```
-
-## 🎨 Customization
-
-### Tailwind Theme
-
-Edit `tailwind.config.ts` to customize colors, fonts, etc.:
-
-```typescript
-theme: {
-  extend: {
-    colors: {
-      primary: { ... }
-    }
-  }
-}
-```
-
-### Categories
-
-Update categories in `constants/categories.ts`:
-
-```typescript
-export const CATEGORIES = [
-  { id: '3', name: 'iPhone', slug: 'iphone', ... },
-  // Add more categories
-];
-```
-
-## 🚢 Deployment
-
-### Self-hosted Docker on VPS
-
-Build and run frontend container directly on VPS:
-
-```bash
-docker build -t mobile-store .
-docker run -p 3000:3000 mobile-store
-```
-
-### Compose-based runtime (recommended in this repo)
-
-```bash
-cd ..
-bin/docker-compose up -d frontend
-```
-
-## 🧪 Testing
-
-### Test with Mock Data
-
-If Magento backend is not available, you can:
-1. Update GraphQL client to use mock data
-2. Create mock responses in `lib/graphql/mocks.ts`
-
-### Integration Testing
-
-Ensure Magento backend is running and accessible before testing full integration.
-
-## 🔐 Security
-
-- **Environment Variables**: Never commit `.env.local`
-- **Authentication**: Tokens stored in localStorage (consider httpOnly cookies for production)
-- **Input Validation**: All forms include client-side validation
-- **CORS**: Configure properly for production
-
-## 📱 Browser Support
-
-- Chrome (latest)
-- Firefox (latest)
-- Safari (latest)
-- Edge (latest)
-- Mobile browsers (iOS Safari, Chrome Mobile)
-
-## 👥 Team Collaboration
-
-### Code Organization
-
-- **Components**: One component per file
-- **Naming**: PascalCase for components, camelCase for utilities
-- **Types**: Define in `types/` directory
-- **Hooks**: Custom hooks in `lib/hooks/`
-
-### Git Workflow
-
-```bash
-# Create feature branch
-git checkout -b feature/product-reviews
-
-# Make changes and commit
-git add .
-git commit -m "Add product reviews feature"
-
-# Push and create PR
-git push origin feature/product-reviews
-```
-
-## 🐛 Troubleshooting
-
-### CORS Errors
-
-If you see CORS errors:
-1. Check Magento CORS configuration
-2. Ensure backend URL is correct in `.env.local`
-3. Consider using a proxy in development
-
-### GraphQL Errors
-
-- Check Magento GraphQL endpoint is accessible
-- Verify GraphQL query syntax
-- Check browser console for detailed errors
-
-### Build Errors
-
-```bash
-# Clear cache and rebuild
-rm -rf .next
-npm run build
-```
-
-## 📄 License
-
-MIT
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## 📧 Support
-
-For issues and questions:
-- Open a GitHub issue
-- Contact: support@mobilestore.com
+Frontend của [AH Phone Store](https://ahphonestore.id.vn) — cửa hàng điện thoại di động, xây dựng bằng Next.js 16 App Router + TypeScript + Tailwind CSS, kết nối Magento 2 qua GraphQL.
 
 ---
 
-**Built with ❤️ using Next.js and Magento 2**
+## ✨ Tính năng
+
+- **Danh mục sản phẩm** theo brand: Apple, Samsung, Xiaomi, Oppo, OnePlus, Vivo, Asus, Red Magic, Tai nghe, Phụ kiện
+- **URL sản phẩm chuẩn:** `/<brand>/<tên-sản-phẩm-có-dấu-gạch>`
+- **Chi tiết sản phẩm** với thông số kỹ thuật tự động từ MobileCity API
+- **Giỏ hàng** — thêm, xóa, cập nhật số lượng
+- **Checkout đa phương thức:**
+  - COD (thanh toán khi nhận hàng)
+  - Chuyển khoản ngân hàng (QR SePay, đối soát tự động)
+  - VNPAY (ATM nội địa, Visa, QR Pay)
+- **Tính phí vận chuyển** thực tế: GHN và Viettel Post
+- **Đăng nhập / Đăng ký** với OTP qua email
+- **Sync Magento:** Tự động tạo order + invoice + chuyển trạng thái `processing` sau thanh toán
+
+---
+
+## � Cấu trúc
+
+```
+frontend/
+├── app/
+│   ├── [brand]/               # Trang danh sách sản phẩm theo brand
+│   ├── [brand]/[slug]/        # Chi tiết sản phẩm
+│   ├── checkout/              # Trang thanh toán
+│   ├── cart/                  # Giỏ hàng
+│   ├── login/ register/       # Auth
+│   ├── admin/orders/          # Xem đơn hàng (admin)
+│   └── api/
+│       ├── vnpay/             # Tạo link thanh toán + verify HMAC-SHA512
+│       ├── sepay-webhook/     # Nhận webhook đối soát SePay
+│       ├── orders/internal/   # CRUD đơn hàng nội bộ (MySQL)
+│       ├── shipping/ghn/      # API GHN shipping
+│       └── shipping/viettelpost/  # API Viettel Post
+├── components/
+│   ├── product/               # ProductCard, ProductGrid, ProductDetailClient
+│   ├── cart/                  # CartItem, CartSummary
+│   ├── layout/                # Navbar, Footer, MobileCityHeader
+│   └── ui/                    # Button, Input, ...
+├── lib/
+│   ├── services/
+│   │   ├── magentoSync.ts         # Tạo order/invoice trong Magento
+│   │   ├── magentoRealtimeSync.ts # Sync realtime sau thanh toán
+│   │   ├── internalOrders.ts      # Quản lý đơn hàng (MySQL)
+│   │   └── sepayClient.ts         # Đối soát giao dịch SePay
+│   ├── graphql/               # GraphQL client + queries
+│   └── utils/
+│       └── productRouting.ts  # Logic build URL sản phẩm theo brand
+├── types/
+│   └── order.ts               # Types: InternalOrder, PaymentMethod, ...
+├── .env.local                 # Biến môi trường (không commit)
+└── Dockerfile                 # Multi-stage build
+```
+
+---
+
+## � Cài đặt & chạy
+
+### Development
+
+```bash
+npm install
+cp .env.example .env.local
+# Điền các biến môi trường cần thiết vào .env.local
+npm run dev
+```
+
+Truy cập: http://localhost:3000
+
+### Production (Docker)
+
+```bash
+# Build từ thư mục gốc E-commerce/
+docker build -t e-commerce-frontend:latest ./frontend
+docker compose up -d --force-recreate frontend
+```
+
+---
+
+## ⚙️ Biến môi trường quan trọng
+
+```env
+# Magento GraphQL
+NEXT_PUBLIC_MAGENTO_GRAPHQL_URL=https://ahphonestore.id.vn/graphql
+MAGENTO_ADMIN_TOKEN=...           # Hoặc dùng username/password bên dưới
+MAGENTO_ADMIN_USERNAME=...
+MAGENTO_ADMIN_PASSWORD=...
+
+# Ngân hàng nhận tiền
+NEXT_PUBLIC_BANK_NAME=BIDV
+NEXT_PUBLIC_BANK_ACCOUNT_NO=...
+NEXT_PUBLIC_BANK_ACCOUNT_NAME=...
+NEXT_PUBLIC_SEPAY_BANK_CODE=BIDV
+
+# SePay (webhook đối soát chuyển khoản)
+SEPAY_API_TOKEN=...
+SEPAY_WEBHOOK_API_KEY=...
+SEPAY_EXPECTED_ACCOUNTS=...       # Số tài khoản nhận tiền, cách nhau bởi dấu phẩy
+
+# VNPAY
+VNPAY_TMN_CODE=...
+VNPAY_HASH_SECRET=...             # Dùng để verify HMAC-SHA512
+VNPAY_PAYMENT_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+VNPAY_RETURN_URL=https://ahphonestore.id.vn/checkout
+
+# Vận chuyển
+GHN_TOKEN=...
+GHN_SHOP_ID=...
+GHN_FROM_DISTRICT_ID=...
+VTP_TOKEN=...
+
+# Lưu đơn hàng nội bộ (MySQL)
+INTERNAL_ORDERS_DB_HOST=db
+INTERNAL_ORDERS_DB_PORT=3306
+INTERNAL_ORDERS_DB_NAME=magento
+INTERNAL_ORDERS_DB_USER=magento
+INTERNAL_ORDERS_DB_PASSWORD=magento
+
+# Email OTP
+SMTP_HOST=smtp.gmail.com
+SMTP_USER=...
+SMTP_PASS=...
+```
+
+---
+
+## 💳 Flow thanh toán
+
+### Chuyển khoản ngân hàng
+```
+Khách đặt hàng → Tạo internal order (pending) → Hiển thị QR SePay
+→ Khách chuyển khoản → SePay gửi webhook → markInternalOrderPaid()
+→ syncPaidOrderToMagentoRealtime() → Magento order + invoice + processing
+```
+
+### VNPAY
+```
+Khách chọn VNPAY → Lưu cart data vào sessionStorage
+→ Tạo link VNPAY (HMAC-SHA512) → Redirect sang VNPAY
+→ VNPAY redirect về /checkout?payment=vnpay&vnp_*=...
+→ POST /api/vnpay/verify (verify HMAC server-side)
+→ Nếu hợp lệ: POST /api/orders/internal (paymentMethod: 'vnpay')
+→ markPaid() + syncPaidOrderToMagentoRealtime()
+→ Giảm số lượng giỏ hàng → Hiện màn hình thành công
+```
+
+### COD
+```
+Khách đặt hàng → POST /api/orders/internal (paymentMethod: 'cod')
+→ syncInternalOrderToMagento() → Magento order ngay
+```
+
+---
+
+## 🔧 Scripts
+
+```bash
+npm run dev        # Dev server (http://localhost:3000)
+npm run build      # Build production
+npm run start      # Chạy production build
+npm run lint       # ESLint
+```
+
+---
+
+## 🔐 Bảo mật
+
+- **VNPAY:** Verify HMAC-SHA512 phía server tại `/api/vnpay/verify` trước khi tạo order — tránh giả mạo callback
+- **SePay webhook:** Xác thực API key qua header `Authorization` + IP whitelist tùy chọn
+- **Checkout:** Yêu cầu đăng nhập trước khi thanh toán
+- **Secret keys:** Chỉ tồn tại trong `.env.local` (server-side), không expose ra client

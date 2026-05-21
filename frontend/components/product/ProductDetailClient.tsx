@@ -10,6 +10,7 @@ import { getPrimaryProductImageUrl, withImageVersion } from '@/lib/utils/image';
 import { buildProductPath, normalizeProductSlug, resolveProductBrandSlug } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
 import { useCart, useAuth } from '@/lib/hooks';
+import { useToast } from '@/context/ToastContext';
 
 interface MediaItem {
   url: string;
@@ -1184,6 +1185,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
   const similarRequestRef = useRef(0);
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
+  const { showToast } = useToast();
   const requestedPath = requestedBrand ? `/${requestedBrand}/${slug}` : `/product/${slug}`;
 
   useEffect(() => {
@@ -1371,7 +1373,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
       : (versionValues[0]?.uid || '');
 
     if (versionOption?.required && versionValues.length > 0 && !resolvedVersionUid) {
-      alert('Vui lòng chọn phiên bản trước khi thêm vào giỏ hàng.');
+      showToast('Vui lòng chọn phiên bản trước khi thêm vào giỏ hàng.', 'info');
       return;
     }
 
@@ -1387,7 +1389,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
     setAdding(true);
     try {
       await addToCart(product.sku, quantity, resolvedVersionUid ? [resolvedVersionUid] : []);
-      alert('Đã thêm vào giỏ hàng!');
+      showToast(`Đã thêm "${product.name}" vào giỏ hàng`, 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
       if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
@@ -1396,7 +1398,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
       }
 
       if (message.includes('timeout') || message.includes('timed out') || message.includes('failed to fetch')) {
-        alert('Hệ thống đang bận, vui lòng thử thêm vào giỏ lại sau vài giây.');
+        showToast('Hệ thống đang bận, vui lòng thử lại sau vài giây.', 'error');
         return;
       }
 
@@ -1407,12 +1409,12 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
         message.includes('is not available')
       ) {
         setForceOutOfStock(true);
-        alert('Sản phẩm hiện đang tạm hết hàng.');
+        showToast('Sản phẩm hiện đang tạm hết hàng.', 'error');
         return;
       }
 
       const rawMessage = error instanceof Error ? error.message : 'Không thể thêm sản phẩm vào giỏ hàng';
-      alert(rawMessage || 'Không thể thêm sản phẩm vào giỏ hàng');
+      showToast(rawMessage || 'Không thể thêm sản phẩm vào giỏ hàng', 'error');
     } finally {
       setAdding(false);
     }

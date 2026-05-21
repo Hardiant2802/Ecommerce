@@ -7,6 +7,7 @@ import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import { buildProductPath } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
 import { useCart, useAuth } from '@/lib/hooks';
+import { useToast } from '@/context/ToastContext';
 import { useState } from 'react';
 
 interface ProductCardProps {
@@ -52,6 +53,7 @@ export default function ProductCard({ product, currentBrand }: ProductCardProps)
   const router = useRouter();
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
+  const { showToast } = useToast();
   const [adding, setAdding] = useState(false);
 
   // Always show original price (no discount)
@@ -74,6 +76,7 @@ export default function ProductCard({ product, currentBrand }: ProductCardProps)
     setAdding(true);
     try {
       await addToCart(product.sku, 1);
+      showToast(`Đã thêm "${product.name}" vào giỏ hàng`, 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
       if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
@@ -87,7 +90,7 @@ export default function ProductCard({ product, currentBrand }: ProductCardProps)
       }
 
       console.error('Error adding to cart:', error);
-      alert('Không thể thêm sản phẩm vào giỏ hàng');
+      showToast('Không thể thêm sản phẩm vào giỏ hàng', 'error');
     } finally {
       setAdding(false);
     }

@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import './globals.css';
 import { CartProvider } from '@/context/CartContext';
 import { AuthProvider } from '@/context/AuthContext';
+import { ToastProvider } from '@/context/ToastContext';
 import MobileCityHeader from '@/components/layout/MobileCityHeader';
 import Footer from '@/components/layout/Footer';
 
@@ -34,6 +35,7 @@ export default function RootLayout({
       <body className={inter.variable}>
         <AuthProvider>
           <CartProvider>
+            <ToastProvider>
             <div className="flex flex-col min-h-screen">
               <Suspense fallback={null}>
                 <MobileCityHeader />
@@ -43,6 +45,7 @@ export default function RootLayout({
               </main>
               <Footer />
             </div>
+            </ToastProvider>
           </CartProvider>
         </AuthProvider>
       </body>

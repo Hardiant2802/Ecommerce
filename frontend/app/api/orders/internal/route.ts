@@ -26,10 +26,11 @@ interface CreateOrderBody {
   note?: string;
   customerEmail?: string;
   items: InternalOrderItem[];
+  vnpayTxnId?: string;
 }
 
 function isValidPaymentMethod(method: string): method is InternalPaymentMethod {
-  return method === 'cod' || method === 'banking' || method === 'momo';
+  return method === 'cod' || method === 'banking' || method === 'momo' || method === 'vnpay';
 }
 
 function sanitizeItems(items: unknown): InternalOrderItem[] {
@@ -344,6 +345,32 @@ export async function POST(request: NextRequest) {
           paymentStatusMessage:
             order.paymentStatusMessage || 'Don COD da duoc dong bo vao Magento.',
         })) || order;
+      }
+    }
+
+    // VNPAY: đánh dấu paid ngay (frontend đã nhận callback success từ VNPAY)
+    // và sync Magento giống flow banking sau khi đối soát SePay
+    if (paymentMethod === 'vnpay') {
+      const vnpayTxnId = typeof body.vnpayTxnId === 'string' ? body.vnpayTxnId.trim() : '';
+      const paidUpdate = await updateInternalOrder(order.id, {
+        status: 'paid',
+        sepayTransactionId: vnpayTxnId || `VNPAY-${order.id}`,
+        lastPaymentAmountReceived: order.amount,
+        lastPaymentCheckedAt: Date.now(),
+        paidAt: Date.now(),
+        paymentStatusMessage: vnpayTxnId
+          ? `Thanh toán VNPAY thành công. Mã GD: ${vnpayTxnId}`
+          : 'Thanh toán VNPAY thành công.',
+      });
+
+      if (paidUpdate) {
+        order = paidUpdate;
+      }
+
+      // Sync sang Magento (tạo order + invoice + chuyển status pending → processing)
+      const synced = await syncPaidOrderToMagentoRealtime(order);
+      if (synced) {
+        order = synced;
       }
     }
 

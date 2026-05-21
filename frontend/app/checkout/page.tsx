@@ -7,7 +7,7 @@ import { useCart, useAuth } from '@/lib/hooks';
 import { formatPrice } from '@/lib/utils/formatters';
 import QRCode from 'react-qr-code';
 
-type PaymentMethod = 'cod' | 'banking' | 'momo';
+type PaymentMethod = 'cod' | 'banking' | 'vnpay';
 type SingleCheckoutMode = 'single' | 'total';
 type ShippingCarrier = 'ghn' | 'vtp';
 
@@ -49,6 +49,7 @@ interface InternalOrderSummary {
 
 const BANKING_ORDER_STORAGE_KEY = 'ahphone_checkout_banking_order_id';
 const CART_SYNC_STORAGE_KEY = 'ahphone_checkout_pending_cart_sync';
+const VNPAY_PENDING_KEY = 'ahphone_checkout_vnpay_pending';
 const QR_EXPIRE_MS = 10 * 60 * 1000;
 
 interface StoredBankingOrder {
@@ -65,6 +66,15 @@ interface PendingCartSync {
   paidUnits: number;
   checkoutMode?: SingleCheckoutMode;
   expectedQuantityBeforePay?: number;
+  savedAt: number;
+}
+
+interface VnpayPendingData {
+  amount: number;
+  currency: string;
+  note: string;
+  customerEmail?: string;
+  items: InternalOrderItemPayload[];
   savedAt: number;
 }
 
@@ -238,6 +248,30 @@ function clearPendingCartSync(): void {
   storage.removeItem(CART_SYNC_STORAGE_KEY);
 }
 
+function writeVnpayPending(data: VnpayPendingData): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  storage.setItem(VNPAY_PENDING_KEY, JSON.stringify(data));
+}
+
+function readVnpayPending(): VnpayPendingData | null {
+  const storage = getSessionStorageSafe();
+  if (!storage) return null;
+  const raw = storage.getItem(VNPAY_PENDING_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as VnpayPendingData;
+  } catch {
+    return null;
+  }
+}
+
+function clearVnpayPending(): void {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  storage.removeItem(VNPAY_PENDING_KEY);
+}
+
 function formatCountdown(ms: number): string {
   const safeSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(safeSeconds / 60);
@@ -313,9 +347,9 @@ export default function CheckoutPage() {
   const [placingOrder, setPlacingOrder] = useState(false);
   const [previewOrderId] = useState(() => `ORD-${Date.now().toString(36).toUpperCase()}`);
   const orderId = previewOrderId;
-  const [momoQR, setMomoQR] = useState<string | null>(null);
-  const [momoLoading, setMomoLoading] = useState(false);
-  const [momoError, setMomoError] = useState<string | null>(null);
+  const [vnpayLoading, setVnpayLoading] = useState(false);
+  const [vnpayError, setVnpayError] = useState<string | null>(null);
+  const [vnpayResult, setVnpayResult] = useState<{ success: boolean; message: string } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [shippingOrderCode, setShippingOrderCode] = useState<string | null>(null);
   const [internalOrder, setInternalOrder] = useState<InternalOrderSummary | null>(null);
@@ -368,13 +402,13 @@ export default function CheckoutPage() {
   const paymentMethodLabel: Record<PaymentMethod, string> = {
     cod: 'Thanh toán khi nhận hàng (COD)',
     banking: 'Chuyển khoản ngân hàng',
-    momo: 'Ví MoMo',
+    vnpay: 'Thanh toán VNPAY',
   };
 
   const paymentMethodDescription: Record<PaymentMethod, string> = {
     cod: 'Bạn thanh toán bằng tiền mặt khi shipper giao hàng đến tay.',
     banking: 'Quét QR và chuyển khoản đúng nội dung để hệ thống đối soát tự động.',
-    momo: 'Thanh toán qua ví MoMo bằng mã QR.',
+    vnpay: 'Thanh toán qua cổng VNPAY (ATM, Visa, QR).',
   };
 
   const cartItems = cart?.items || [];
@@ -467,17 +501,146 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (paymentFromQuery === 'momo') {
-      setPaymentMethod('momo');
+    if (paymentFromQuery === 'vnpay') {
+      setPaymentMethod('vnpay');
       return;
     }
 
     setPaymentMethod('banking');
   }, [paymentFromQuery]);
 
+  // Xử lý khi VNPAY redirect về sau thanh toán
   useEffect(() => {
-    setMomoQR(null);
-    setMomoError(null);
+    if (paymentFromQuery !== 'vnpay') return;
+
+    const vnpResponseCode = searchParams.get('vnp_ResponseCode');
+    if (!vnpResponseCode) return;
+
+    // Chưa verify - chờ server xác thực trước
+    if (authLoading || !isAuthenticated) return;
+
+    // Tránh gọi lặp lại
+    const txnRef = searchParams.get('vnp_TxnRef') || '';
+    const storage = getSessionStorageSafe();
+    const processedKey = `vnpay_processed_${txnRef}`;
+    if (storage?.getItem(processedKey)) {
+      setPaymentMethod('vnpay');
+      setVnpayResult({ success: true, message: 'Đã xử lý' });
+      setOrderPlaced(true);
+      return;
+    }
+
+    let cancelled = false;
+    const processVnpayReturn = async () => {
+      try {
+        // Bước 1: Gửi toàn bộ params lên server để verify HMAC
+        const allParams: Record<string, string> = {};
+        searchParams.forEach((value, key) => {
+          allParams[key] = value;
+        });
+
+        const verifyRes = await fetch('/api/vnpay/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(allParams),
+        });
+
+        const verifyData = (await verifyRes.json()) as {
+          valid: boolean;
+          success?: boolean;
+          responseCode?: string;
+          txnRef?: string;
+          transactionNo?: string;
+          amount?: string;
+          bankCode?: string;
+          error?: string;
+        };
+
+        if (cancelled) return;
+
+        setPaymentMethod('vnpay');
+
+        if (!verifyData.valid) {
+          // Chữ ký không hợp lệ - từ chối xử lý
+          setVnpayResult({
+            success: false,
+            message: 'Giao dịch không hợp lệ. Vui lòng liên hệ hỗ trợ.',
+          });
+          return;
+        }
+
+        if (!verifyData.success) {
+          // Chữ ký đúng nhưng thanh toán thất bại
+          setVnpayResult({
+            success: false,
+            message: `Thanh toán thất bại (mã lỗi: ${verifyData.responseCode}). Vui lòng thử lại.`,
+          });
+          return;
+        }
+
+        // Bước 2: Chữ ký hợp lệ + thanh toán thành công → tạo internal order
+        const pending = readVnpayPending();
+        const vnpAmount = Math.round(Number(verifyData.amount || 0) / 100);
+        const orderAmount = vnpAmount > 0 ? vnpAmount : (pending?.amount || 0);
+        const orderItems = pending?.items || [];
+
+        if (orderItems.length === 0) {
+          setVnpayResult({
+            success: false,
+            message: 'Không tìm thấy thông tin đơn hàng. Vui lòng liên hệ hỗ trợ.',
+          });
+          return;
+        }
+
+        const orderRes = await fetch('/api/orders/internal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paymentMethod: 'vnpay',
+            amount: orderAmount,
+            currency: pending?.currency || 'VND',
+            note: pending?.note || '',
+            customerEmail: pending?.customerEmail || user?.email,
+            items: orderItems,
+            vnpayTxnId: verifyData.transactionNo || verifyData.txnRef || txnRef,
+          }),
+        });
+
+        const orderData = (await orderRes.json()) as { order?: InternalOrderSummary; error?: string };
+        if (cancelled) return;
+
+        if (!orderRes.ok || !orderData.order) {
+          throw new Error(orderData.error || 'Không thể tạo đơn hàng VNPAY.');
+        }
+
+        setVnpayResult({
+          success: true,
+          message: `Thanh toán thành công! Mã GD: ${verifyData.txnRef} — Ngân hàng: ${verifyData.bankCode}`,
+        });
+        setInternalOrder(orderData.order);
+        storage?.setItem(processedKey, '1');
+        clearVnpayPending();
+        setOrderPlaced(true);
+      } catch (error) {
+        console.error('Process VNPAY order failed:', error);
+        if (!cancelled) {
+          setVnpayResult({
+            success: false,
+            message: error instanceof Error ? error.message : 'Không thể xử lý thanh toán VNPAY.',
+          });
+        }
+      }
+    };
+
+    void processVnpayReturn();
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentFromQuery, authLoading, isAuthenticated]);
+
+  useEffect(() => {
+    setVnpayError(null);
     setOrderError(null);
   }, [paymentMethod]);
 
@@ -792,24 +955,41 @@ export default function CheckoutPage() {
     } catch { return null; }
   };
 
-  const handleMomoPayment = async () => {
-    setMomoLoading(true);
-    setMomoError(null);
+  const handleVnpayPayment = async () => {
+    setVnpayLoading(true);
+    setVnpayError(null);
     try {
-      const response = await fetch('/api/momo', {
+      const response = await fetch('/api/vnpay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: Math.round(grandTotal || 0),
-          orderId,
-          orderInfo: `Thanh toán đơn hàng ${orderId}`,
+          orderId: orderId,
+          orderInfo: `Thanh toan don hang ${orderId}`,
+          itemId: itemId || undefined,
         }),
       });
       const data = await response.json();
-      if (data.payUrl) setMomoQR(data.payUrl);
-      else setMomoError('Không thể tạo QR MoMo. Vui lòng thử lại.');
-    } catch { setMomoError('Lỗi kết nối. Vui lòng thử lại.'); }
-    finally { setMomoLoading(false); }
+      if (data.paymentUrl) {
+        // Lưu checkout data vào sessionStorage trước khi redirect
+        writeVnpayPending({
+          amount: Math.round(grandTotal || 0),
+          currency,
+          note: orderNote,
+          customerEmail: user?.email,
+          items: buildItemsPayload(),
+          savedAt: Date.now(),
+        });
+        // Redirect sang trang thanh toán VNPAY
+        window.location.href = data.paymentUrl;
+      } else {
+        setVnpayError('Không thể tạo link thanh toán VNPAY. Vui lòng thử lại.');
+      }
+    } catch {
+      setVnpayError('Lỗi kết nối. Vui lòng thử lại.');
+    } finally {
+      setVnpayLoading(false);
+    }
   };
 
   const copyText = async (value: string, field: 'account' | 'content') => {
@@ -1101,7 +1281,7 @@ export default function CheckoutPage() {
   }, [checkoutFingerprint, isScopeStale, refreshOrderStatus]);
 
   const applyPaidCartSync = useCallback(async (): Promise<void> => {
-    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid' || !isSingleProductCheckout) {
+    if ((paymentMethod !== 'banking' && paymentMethod !== 'vnpay') || internalOrder?.status !== 'paid' || !isSingleProductCheckout) {
       return;
     }
 
@@ -1286,11 +1466,30 @@ export default function CheckoutPage() {
   }, [paymentMethod, internalOrder?.status, internalOrder?.sepayTransactionId]);
 
   useEffect(() => {
-    if (paymentMethod !== 'banking' || internalOrder?.status !== 'paid') {
+    if ((paymentMethod !== 'banking' && paymentMethod !== 'vnpay') || internalOrder?.status !== 'paid') {
       return;
     }
 
     if (!isSingleProductCheckout) {
+      // Checkout toàn bộ giỏ: xóa hết items đã thanh toán
+      if (paymentMethod === 'vnpay') {
+        const paidOrderId = internalOrder?.id || '';
+        if (!paidOrderId || cartSyncedPaidOrderRef.current === paidOrderId) return;
+        cartSyncedPaidOrderRef.current = paidOrderId;
+
+        let cancelled = false;
+        const syncAll = async () => {
+          const currentItems = Array.isArray(cart?.items) ? cart.items : [];
+          if (currentItems.length === 0) return;
+          // Xóa tất cả items cùng lúc thay vì tuần tự
+          await Promise.all(
+            currentItems.map((item) => removeItem(item.id).catch(() => {}))
+          );
+          if (!cancelled) await refreshCart();
+        };
+        void syncAll();
+        return () => { cancelled = true; };
+      }
       return;
     }
 
@@ -1428,7 +1627,7 @@ export default function CheckoutPage() {
     if (!isAddressComplete) { alert('Vui lòng điền đầy đủ thông tin địa chỉ giao hàng!'); return; }
     if (requiresShippingInfo && shippingLoading) { alert('Hệ thống đang tính phí vận chuyển, vui lòng chờ một chút.'); return; }
     if (!hasShippingFee) { alert('Chưa tính được phí vận chuyển. Vui lòng kiểm tra lại địa chỉ giao hàng.'); return; }
-    if (paymentMethod === 'momo') { await handleMomoPayment(); return; }
+    if (paymentMethod === 'vnpay') { await handleVnpayPayment(); return; }
     setPlacingOrder(true);
     setConfirmLoading(true);
     try {
@@ -1456,6 +1655,26 @@ export default function CheckoutPage() {
         if (!codOrder) {
           throw new Error('Không thể đồng bộ đơn COD vào Magento.');
         }
+
+        // Xóa sản phẩm khỏi giỏ hàng sau khi đặt COD thành công
+        try {
+          const currentItems = Array.isArray(cart?.items) ? cart.items : [];
+          if (currentItems.length > 0) {
+            await Promise.all(
+              checkoutItems.map((item) => {
+                const cartItem = currentItems.find((i) => i.id === item.id || i.uid === item.uid || i.product?.sku === item.product?.sku);
+                if (!cartItem) return Promise.resolve();
+                const paidQty = resolveCheckoutItemQuantity(item.quantity);
+                const remaining = Math.max(0, cartItem.quantity - paidQty);
+                return remaining <= 0 ? removeItem(cartItem.id) : updateQuantity(cartItem.id, remaining);
+              })
+            );
+            await refreshCart();
+          }
+        } catch (cartSyncError) {
+          console.error('COD cart sync failed:', cartSyncError);
+        }
+
         setOrderPlaced(true);
         return;
       }
@@ -1478,6 +1697,19 @@ export default function CheckoutPage() {
             <div className="h-8 bg-gray-200 rounded w-1/4" />
             <div className="h-64 bg-gray-200 rounded" />
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Khi VNPAY return về và đang xử lý tạo order
+  if (paymentFromQuery === 'vnpay' && searchParams.get('vnp_ResponseCode') === '00' && !orderPlaced) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="container-custom text-center py-20">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Hệ thống đang xử lý đơn hàng</h2>
+          <p className="text-gray-500 text-sm">Vui lòng không đóng trang này. Chúng tôi đang xác nhận giao dịch VNPAY của bạn...</p>
         </div>
       </div>
     );
@@ -1535,6 +1767,43 @@ export default function CheckoutPage() {
 
   if (orderPlaced) {
     const bankingPending = paymentMethod === 'banking' && !isBankingPaid;
+    const isVnpaySuccess = paymentMethod === 'vnpay' && vnpayResult?.success;
+
+    // Màn hình riêng cho VNPAY thành công
+    if (isVnpaySuccess) {
+      return (
+        <div className="min-h-screen bg-gray-50 py-8">
+          <div className="container-custom">
+            <div className="max-w-lg mx-auto bg-white rounded-xl shadow-sm p-8 text-center">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-blue-100">
+                <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Thanh toán thành công!</h2>
+              <p className="text-gray-600 mb-1">Mã đơn hàng: <strong className="text-primary-700">{searchParams.get('vnp_TxnRef') || orderId}</strong></p>
+              <p className="text-gray-600 mb-1 text-sm">Phương thức: <strong>VNPAY</strong></p>
+              <p className="text-gray-600 mb-1 text-sm">Ngân hàng: <strong>{searchParams.get('vnp_BankCode') || ''}</strong></p>
+              <p className="text-gray-600 mb-4 text-sm">Số tiền: <strong className="text-blue-700">{formatPrice(Math.round(Number(searchParams.get('vnp_Amount') || 0) / 100), 'VND')}</strong></p>
+
+              <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left mb-6 text-sm text-blue-800">
+                <p className="font-semibold mb-1">✅ Giao dịch đã được xác nhận</p>
+                <p className="text-xs text-blue-600">Mã GD VNPAY: <strong>{searchParams.get('vnp_TransactionNo') || ''}</strong></p>
+                <p className="text-xs text-blue-600 mt-1">Đơn hàng sẽ được xử lý trong 24 giờ làm việc.</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => router.push('/')}
+                className="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Tiếp tục mua sắm
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="min-h-screen bg-gray-50 py-8">
@@ -1912,11 +2181,11 @@ export default function CheckoutPage() {
             <div className="order-4 bg-white rounded-xl shadow-sm p-5 space-y-3">
               <h2 className="font-bold text-gray-900">Phương thức thanh toán</h2>
               <div className="space-y-3">
-                {(['cod', 'banking', 'momo'] as PaymentMethod[]).map(method => (
+                {(['cod', 'banking', 'vnpay'] as PaymentMethod[]).map(method => (
                   <button key={method} type="button" onClick={() => setPaymentMethod(method)}
                     className={`w-full text-left border rounded-lg px-4 py-3 transition-colors ${
                       paymentMethod === method
-                        ? method === 'momo' ? 'border-pink-300 bg-pink-50' : 'border-primary-300 bg-primary-50'
+                        ? method === 'vnpay' ? 'border-blue-300 bg-blue-50' : 'border-primary-300 bg-primary-50'
                         : 'border-gray-200 bg-white hover:border-gray-300'
                     }`}>
                     {method === 'cod' && <><p className="text-sm font-medium text-gray-900">Thanh toán khi nhận hàng (COD)</p><p className="text-xs text-gray-600 mt-1">Thanh toán tiền mặt khi nhận hàng.</p></>}
@@ -1929,10 +2198,15 @@ export default function CheckoutPage() {
                         <p className="text-xs text-gray-600">Quét QR và chuyển khoản đúng nội dung để đối soát tự động.</p>
                       </div>
                     )}
-                    {method === 'momo' && (
+                    {method === 'vnpay' && (
                       <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2"><span className="text-pink-600 text-lg">💳</span><p className="text-sm font-medium text-gray-900">Ví MoMo</p></div>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Bạn sẽ xử lý sau</span>
+                        <div className="flex items-center gap-2">
+                          <svg className="w-5 h-5 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                          </svg>
+                          <p className="text-sm font-medium text-gray-900">Thanh toán VNPAY</p>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">ATM / Visa / QR</span>
                       </div>
                     )}
                   </button>
@@ -1945,10 +2219,10 @@ export default function CheckoutPage() {
                 </div>
               )}
 
-              <button onClick={handleConfirmOrder} disabled={switchingCheckoutMode || placingOrder || momoLoading || confirmLoading || creatingBankingOrder || (requiresShippingInfo && shippingLoading) || !isAddressComplete || !hasShippingFee}
+              <button onClick={handleConfirmOrder} disabled={switchingCheckoutMode || placingOrder || vnpayLoading || confirmLoading || creatingBankingOrder || (requiresShippingInfo && shippingLoading) || !isAddressComplete || !hasShippingFee}
                 className={`w-full font-bold py-3 rounded-xl transition-colors text-white ${
-                  paymentMethod === 'momo'
-                    ? 'bg-pink-600 hover:bg-pink-700'
+                  paymentMethod === 'vnpay'
+                    ? 'bg-blue-600 hover:bg-blue-700'
                     : paymentMethod === 'banking'
                       ? 'bg-amber-600 hover:bg-amber-700'
                       : 'bg-primary-600 hover:bg-primary-700'
@@ -1961,8 +2235,8 @@ export default function CheckoutPage() {
                     ? 'Đang xử lý...'
                   : creatingBankingOrder
                     ? 'Đang tạo mã chuyển khoản...'
-                    : momoLoading
-                      ? 'Đang tạo QR...'
+                    : vnpayLoading
+                      ? 'Đang chuyển sang VNPAY...'
                       : paymentMethod === 'banking'
                         ? 'Theo dõi thanh toán (Chuyển khoản ngân hàng)'
                         : `Xác nhận đặt hàng (${paymentMethodLabel[paymentMethod]})`}
@@ -1979,34 +2253,30 @@ export default function CheckoutPage() {
                   <p>{paymentMethodDescription[paymentMethod]}</p>
                 </>
               )}
-              {paymentMethod === 'momo' && momoQR ? (
+              {paymentMethod === 'vnpay' ? (
                 <div className="text-center space-y-4">
-                  <div className="flex items-center justify-center gap-2 mb-2">
-                    <span className="text-2xl">💜</span>
-                    <h3 className="font-bold text-pink-600 text-lg">Quét mã QR để thanh toán</h3>
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                    <h3 className="font-bold text-blue-700 text-lg">Thanh toán VNPAY</h3>
                   </div>
-                  <div className="border-4 border-pink-200 rounded-2xl p-4 inline-block bg-white">
-                    <QRCode value={momoQR} size={192} style={{ height: 'auto', maxWidth: '100%', width: '100%' }} />
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-left space-y-2">
+                    <p className="text-sm font-semibold text-blue-800">Số tiền: {formattedGrandTotal}</p>
+                    <p className="text-xs text-gray-600">Mã đơn: <strong>{orderId}</strong></p>
+                    <p className="text-xs text-gray-500">Bấm <strong>Xác nhận đặt hàng</strong> để chuyển sang trang thanh toán VNPAY. Hỗ trợ ATM nội địa, Visa/Mastercard, QR Pay.</p>
                   </div>
-                  <p className="text-xs text-gray-500">Mở app MoMo → Quét mã → Xác nhận thanh toán</p>
-                  <div className="bg-pink-50 rounded-lg p-3 text-left space-y-1">
-                    <p className="text-xs font-semibold text-pink-700">Số tiền: {formattedGrandTotal}</p>
-                    <p className="text-xs text-gray-500">Mã đơn: {orderId}</p>
-                  </div>
-                  <button onClick={async () => {
-                    setMomoQR(null);
-                    setShippingOrderCode(null);
-                    setOrderPlaced(true);
-                  }} className="w-full bg-pink-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-pink-700 transition-colors">
-                    Tôi đã thanh toán xong
-                  </button>
-                </div>
-              ) : paymentMethod === 'momo' && !momoQR ? (
-                <div className="text-center space-y-3">
-                  <span className="text-4xl">💜</span>
-                  <h3 className="font-bold text-pink-600">Ví MoMo</h3>
-                  <p className="text-gray-600 text-xs">Bấm <strong>Xác nhận đặt hàng</strong> để tạo mã QR thanh toán.</p>
-                  {momoError && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><p className="text-red-600 text-xs">{momoError}</p></div>}
+                  {vnpayError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-red-600 text-xs">{vnpayError}</p>
+                    </div>
+                  )}
+                  {vnpayLoading && (
+                    <div className="flex items-center justify-center gap-2 text-blue-600 text-sm">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+                      Đang chuyển sang trang VNPAY...
+                    </div>
+                  )}
                 </div>
               ) : paymentMethod === 'banking' ? (
                 <div className="space-y-3">
@@ -2109,7 +2379,7 @@ export default function CheckoutPage() {
                   <p className="text-xs text-gray-600">{address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}</p>
                 </div>
               )}
-              {paymentMethod !== 'momo' && <p className="text-xs text-gray-500">Đơn hàng sẽ được xử lý trong 24 giờ làm việc sau khi đặt hàng.</p>}
+              {paymentMethod !== 'vnpay' && <p className="text-xs text-gray-500">Đơn hàng sẽ được xử lý trong 24 giờ làm việc sau khi đặt hàng.</p>}
             </div>
             <Link href="/cart" className="block text-center text-sm text-gray-500 hover:text-gray-700 underline">Quay lại giỏ hàng</Link>
           </div>
