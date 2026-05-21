@@ -11,8 +11,15 @@ interface ProductImageSource {
   updated_at?: string;
 }
 
+const MAGENTO_PLACEHOLDER_PATTERN = /\/Magento_Catalog\/images\/product\/placeholder\//;
+
 export function withImageVersion(url?: string, version?: string): string {
   if (!url) {
+    return '/images/placeholder.svg';
+  }
+
+  // Magento placeholder images (any host) are not real product images
+  if (MAGENTO_PLACEHOLDER_PATTERN.test(url)) {
     return '/images/placeholder.svg';
   }
 

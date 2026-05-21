@@ -1,12 +1,10 @@
 <?php
 /**
- * Copyright 2016 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 namespace Magento\Framework\MessageQueue\UseCase;
 
-use Magento\Framework\MessageQueue\DefaultValueProvider;
-use Magento\TestFramework\Helper\Bootstrap;
 use Magento\TestModuleAsyncAmqp\Model\AsyncTestData;
 
 class WildcardTopicTest extends QueueTestCaseAbstract
@@ -22,26 +20,6 @@ class WildcardTopicTest extends QueueTestCaseAbstract
     ];
 
     /**
-     * @var string
-     */
-    private $connectionType;
-
-    /**
-     * @inheritdoc
-     */
-    protected function setUp(): void
-    {
-        $this->objectManager = Bootstrap::getObjectManager();
-        /** @var DefaultValueProvider $defaultValueProvider */
-        $defaultValueProvider = $this->objectManager->get(DefaultValueProvider::class);
-        $this->connectionType = $defaultValueProvider->getConnection();
-
-        if ($this->connectionType === 'amqp') {
-            parent::setUp();
-        }
-    }
-
-    /**
      * @param string $topic
      * @param string[] $matchingQueues
      * @param string[] $nonMatchingQueues
@@ -50,11 +28,6 @@ class WildcardTopicTest extends QueueTestCaseAbstract
      */
     public function testWildCardMatchingTopic($topic, $matchingQueues, $nonMatchingQueues)
     {
-        if ($this->connectionType === 'stomp') {
-            $this->markTestSkipped('AMQP test skipped because STOMP connection is available.
-            This test is AMQP-specific.');
-        }
-
         $testObject = $this->generateTestObject();
         $this->publisher->publish($topic, $testObject);
 
@@ -87,11 +60,6 @@ class WildcardTopicTest extends QueueTestCaseAbstract
 
     public function testWildCardNonMatchingTopic()
     {
-        if ($this->connectionType === 'stomp') {
-            $this->markTestSkipped('AMQP test skipped because STOMP connection is available.
-            This test is AMQP-specific.');
-        }
-
         $testObject = $this->generateTestObject();
         $this->publisher->publish('not.matching.wildcard.topic', $testObject);
         sleep(2);

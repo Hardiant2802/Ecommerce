@@ -1,5 +1,5 @@
-# Copy this file to .dev.vars when running Cloudflare local preview with wrangler.
-# Do not commit .dev.vars.
+# Copy this file to .env.local for local development/testing.
+# Do not commit secrets.
 
 NEXT_PUBLIC_MAGENTO_GRAPHQL_URL=https://ahphonestore.id.vn/graphql
 NEXT_PUBLIC_MAGENTO_API_URL=https://ahphonestore.id.vn

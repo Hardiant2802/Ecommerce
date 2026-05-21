@@ -13,6 +13,7 @@
 services:
   app:
     image: markoshust/magento-nginx:1.24-0
+    restart: unless-stopped
     ports:
       - "80:8000"
       - "443:8443"
@@ -23,11 +24,22 @@ services:
       - appdata:/var/www/html
       - sockdata:/sock
       - ssldata:/etc/nginx/certs
+      - ./src/nginx.conf:/var/www/html/nginx.conf:ro
     #extra_hosts: &appextrahosts
       ## Selenium support, replace "magento.test" with URL of your site
       #- "magento.test:172.17.0.1"
       ## Linux, uncomment for Xdebug capabilities:
       #- "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - ./frontend/.env.local
+    restart: unless-stopped
+    expose:
+      - "3000"
 
   phpfpm:
     image: markoshust/magento-php:8.3-fpm-4
@@ -63,6 +75,20 @@ services:
 
   redis:
     image: valkey/valkey:8.1-alpine
+    command:
+      - valkey-server
+      - --rename-command
+      - REPLICAOF
+      - ""
+      - --rename-command
+      - SLAVEOF
+      - ""
+    healthcheck:
+      test: "redis-cli ROLE | head -n 1 | grep -q '^master$' || exit 1"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
     #ports:
     #  - "6379:6379"
 
@@ -132,8 +158,6 @@ services:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run
     env_file: env/cloudflare.env
-    environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
     depends_on:
       app:
         condition: service_healthy

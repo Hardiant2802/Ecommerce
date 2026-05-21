@@ -6,7 +6,6 @@ import ProductGrid from '@/components/product/ProductGrid';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_CATEGORY_BY_URL_KEY, GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { SORT_OPTIONS } from '@/constants/categories';
-import { getFallbackProducts } from '@/constants/fallbackProducts';
 
 interface Product {
   id: string;
@@ -132,20 +131,13 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         }
 
         if (!categoryId) {
-          const fallback = getFallbackProducts({
-            brand: activeBrand || category,
-            search,
-            sortBy,
-            page,
-            pageSize: PAGE_SIZE,
-          });
           if (isStale()) {
             return;
           }
-          setProducts(fallback.items);
-          setTotalCount(fallback.totalCount);
-          setTotalPages(fallback.totalPages);
-          setCurrentPage(fallback.currentPage);
+          setProducts([]);
+          setTotalCount(0);
+          setTotalPages(1);
+          setCurrentPage(1);
           return;
         }
 
@@ -194,37 +186,16 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
       setProducts(data.products.items);
       setTotalCount(data.products.total_count || 0);
       setTotalPages(data.products.page_info?.total_pages || 1);
-
-      if (!data.products.items.length) {
-        const fallback = getFallbackProducts({
-          brand: activeBrand || category,
-          search,
-          sortBy,
-          page,
-          pageSize: PAGE_SIZE,
-        });
-        setProducts(fallback.items);
-        setTotalCount(fallback.totalCount);
-        setTotalPages(fallback.totalPages);
-        setCurrentPage(fallback.currentPage);
-      }
+      setCurrentPage(data.products.page_info?.current_page || page);
     } catch (error) {
       console.error('Không thể tải sản phẩm:', error);
-
-      const fallback = getFallbackProducts({
-        brand: activeBrand || category,
-        search,
-        sortBy,
-        page,
-        pageSize: PAGE_SIZE,
-      });
       if (isStale()) {
         return;
       }
-      setProducts(fallback.items);
-      setTotalCount(fallback.totalCount);
-      setTotalPages(fallback.totalPages);
-      setCurrentPage(fallback.currentPage);
+      setProducts([]);
+      setTotalCount(0);
+      setTotalPages(1);
+      setCurrentPage(1);
     } finally {
       if (!isStale()) {
         setLoading(false);
@@ -287,7 +258,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
           </div>
         </div>
 
-        <ProductGrid products={products} loading={loading} />
+          <ProductGrid products={products} loading={loading} currentBrand={activeBrand || undefined} />
 
         {!loading && totalPages > 1 && (
           <div className="flex items-center justify-center gap-3 mt-8">

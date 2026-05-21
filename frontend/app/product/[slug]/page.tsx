@@ -1,6 +1,7 @@
 import ProductDetailClient from '@/components/product/ProductDetailClient';
+import { normalizeProductSlug } from '@/lib/utils/productRouting';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 interface ProductDetailPageProps {
   params: Promise<{
@@ -10,5 +11,6 @@ interface ProductDetailPageProps {
 
 export default async function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { slug } = await params;
-  return <ProductDetailClient slug={slug} />;
+  const normalizedSlug = normalizeProductSlug(slug);
+  return <ProductDetailClient slug={normalizedSlug || slug} />;
 }

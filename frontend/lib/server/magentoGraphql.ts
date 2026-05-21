@@ -1,5 +1,4 @@
 const DEFAULT_MAGENTO_GRAPHQL_URL = 'https://ahphonestore.id.vn/graphql';
-const FALLBACK_MAGENTO_GRAPHQL_URL = 'https://www.ahphonestore.id.vn/graphql';
 
 interface MagentoGraphqlError {
   message?: string;
@@ -35,10 +34,10 @@ export function resolveMagentoGraphqlUrl(requestUrl?: URL): string {
       targetUrl.port === requestUrl.port &&
       targetUrl.pathname === '/api/graphql'
     ) {
-      return FALLBACK_MAGENTO_GRAPHQL_URL;
+      return DEFAULT_MAGENTO_GRAPHQL_URL;
     }
   } catch {
-    return FALLBACK_MAGENTO_GRAPHQL_URL;
+    return DEFAULT_MAGENTO_GRAPHQL_URL;
   }
 
   return candidateUrl;

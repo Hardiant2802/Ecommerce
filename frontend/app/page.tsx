@@ -1,4 +1,4 @@
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 import FeaturedProducts from '@/components/home/FeaturedProducts';
 import WeatherWidget from '@/components/weather/WeatherWidget';

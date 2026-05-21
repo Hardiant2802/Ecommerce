@@ -2,8 +2,28 @@ rootCA.pem
 .vscode/
 template/dev/team-data/*
 !template/dev/team-data/.gitkeep
+
+# VPS generated runtime data
+backups/db/
+backups/media/
+backups/reports/
+
+# Environment files with credentials
 env/cloudflare.env
 env/cloudflare.local.env
 env/*.local
 env/*.local.env
+env/db.env
+env/magento.env
 frontend/.env.local
+
+# Magento generated artifacts
+src/generated/code/
+src/generated/metadata/
+src/pub/media/catalog/
+src/pub/static/
+src/var/
+
+# Docs & temp files
+SYSTEM_DESIGN.md
+frontend/Dockerfile.patch

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { Cart, CartItem } from '@/types/cart';
 import { storage } from '@/lib/utils/storage';
+import { useAuth } from '@/context/AuthContext';
 import { graphqlClient } from '@/lib/graphql/client';
 import {
   CREATE_EMPTY_CART,
@@ -16,7 +17,7 @@ import {
 interface CartContextType {
   cart: Cart | null;
   loading: boolean;
-  addToCart: (sku: string, quantity: number) => Promise<void>;
+  addToCart: (sku: string, quantity?: number, selectedOptions?: string[]) => Promise<void>;
   updateQuantity: (cartItemId: string, quantity: number) => Promise<void>;
   removeItem: (cartItemId: string) => Promise<void>;
   refreshCart: () => Promise<void>;
@@ -31,9 +32,11 @@ function isCartNotFoundError(error: unknown): boolean {
   return (
     msg.includes('no such entity') ||
     msg.includes('could not find a cart') ||
+    msg.includes('could not find cart') ||
     msg.includes('cart_not_found') ||
     msg.includes('the cart isn') ||
-    msg.includes("wasn't found")
+    msg.includes("wasn't found") ||
+    msg.includes('cart id')
   );
 }
 
@@ -43,7 +46,9 @@ function isCartAccessDeniedError(error: unknown): boolean {
     msg.includes('cannot perform operations on cart') ||
     msg.includes('current user cannot') ||
     msg.includes('not authorized') ||
-    msg.includes('permission')
+    msg.includes('permission') ||
+    msg.includes('cannot assign customer to the given cart') ||
+    msg.includes('cart does not belong to this customer')
   );
 }
 
@@ -57,16 +62,258 @@ function isAuthTokenInvalidError(error: unknown): boolean {
   );
 }
 
+function isTransientCartError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('abort') ||
+    msg.includes('network') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('503') ||
+    msg.includes('504')
+  );
+}
+
+function getUnitPrice(item: CartItem): number {
+  return item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value;
+}
+
+function applyOptimisticQuantity(cart: Cart, cartItemId: number, nextQuantity: number): Cart {
+  const targetIndex = cart.items.findIndex((item) => Number(item.id) === cartItemId);
+  if (targetIndex === -1) {
+    return cart;
+  }
+
+  const targetItem = cart.items[targetIndex];
+  const currentQuantity = Math.max(1, Math.floor(targetItem.quantity));
+  const quantityDiff = nextQuantity - currentQuantity;
+
+  if (quantityDiff === 0) {
+    return cart;
+  }
+
+  const unitPrice = getUnitPrice(targetItem);
+  const nextItems = cart.items.map((item, index) => {
+    if (index !== targetIndex) {
+      return item;
+    }
+
+    return {
+      ...item,
+      quantity: nextQuantity,
+      prices: {
+        ...item.prices,
+        row_total: {
+          ...item.prices.row_total,
+          value: unitPrice * nextQuantity,
+        },
+      },
+    };
+  });
+
+  const nextSubtotal = Math.max(0, cart.prices.subtotal_excluding_tax.value + unitPrice * quantityDiff);
+  const nextGrandTotal = Math.max(0, cart.prices.grand_total.value + unitPrice * quantityDiff);
+
+  return {
+    ...cart,
+    items: nextItems,
+    total_quantity: Math.max(0, cart.total_quantity + quantityDiff),
+    prices: {
+      ...cart.prices,
+      subtotal_excluding_tax: {
+        ...cart.prices.subtotal_excluding_tax,
+        value: nextSubtotal,
+      },
+      grand_total: {
+        ...cart.prices.grand_total,
+        value: nextGrandTotal,
+      },
+    },
+  };
+}
+
+type UpdatedCartSnapshotItem = {
+  id: string | number;
+  quantity?: number;
+  prices?: {
+    row_total?: {
+      value?: number;
+    };
+  };
+};
+
+interface UpdatedCartSnapshot {
+  total_quantity?: number;
+  items?: UpdatedCartSnapshotItem[];
+  prices?: {
+    grand_total?: {
+      value?: number;
+      currency?: string;
+    };
+  };
+}
+
+function applyServerCartSnapshot(cart: Cart, snapshot: UpdatedCartSnapshot): Cart {
+  const snapshotItems = Array.isArray(snapshot.items) ? snapshot.items : [];
+  const snapshotById = new Map<number, UpdatedCartSnapshotItem>();
+
+  for (const item of snapshotItems) {
+    const parsedId = Number(item.id);
+    if (Number.isInteger(parsedId) && parsedId > 0) {
+      snapshotById.set(parsedId, item);
+    }
+  }
+
+  const nextItems = cart.items.map((item) => {
+    const parsedId = Number(item.id);
+    const updated = snapshotById.get(parsedId);
+    if (!updated) {
+      return item;
+    }
+
+    const nextQuantity = Math.max(1, Math.floor(Number(updated.quantity ?? item.quantity)));
+    const rowTotalValue = Number(updated.prices?.row_total?.value);
+
+    return {
+      ...item,
+      quantity: nextQuantity,
+      prices: {
+        ...item.prices,
+        row_total: {
+          ...item.prices.row_total,
+          value: Number.isFinite(rowTotalValue) ? rowTotalValue : item.prices.row_total.value,
+        },
+      },
+    };
+  });
+
+  const recalculatedSubtotal = nextItems.reduce((sum, item) => {
+    return sum + getUnitPrice(item) * Math.max(1, Math.floor(item.quantity));
+  }, 0);
+
+  const grandTotalValue = Number(snapshot.prices?.grand_total?.value);
+  const grandTotalCurrency = snapshot.prices?.grand_total?.currency;
+  const nextTotalQuantity = Number(snapshot.total_quantity);
+
+  return {
+    ...cart,
+    items: nextItems,
+    total_quantity: Number.isFinite(nextTotalQuantity)
+      ? Math.max(0, Math.floor(nextTotalQuantity))
+      : nextItems.reduce((sum, item) => sum + Math.max(1, Math.floor(item.quantity)), 0),
+    prices: {
+      ...cart.prices,
+      subtotal_excluding_tax: {
+        ...cart.prices.subtotal_excluding_tax,
+        value: recalculatedSubtotal,
+      },
+      grand_total: {
+        ...cart.prices.grand_total,
+        value: Number.isFinite(grandTotalValue) ? grandTotalValue : cart.prices.grand_total.value,
+        currency: grandTotalCurrency || cart.prices.grand_total.currency,
+      },
+    },
+  };
+}
+
+function preserveLockedItemSnapshot(
+  previousCart: Cart | null,
+  incomingCart: Cart,
+  lockedItemIds: Set<number>,
+  queuedQuantities: Map<number, number>
+): Cart {
+  if (!previousCart || lockedItemIds.size === 0) {
+    return incomingCart;
+  }
+
+  const previousItemsById = new Map<number, CartItem>();
+  for (const item of previousCart.items) {
+    const parsedId = Number(item.id);
+    if (Number.isInteger(parsedId) && parsedId > 0) {
+      previousItemsById.set(parsedId, item);
+    }
+  }
+
+  let hasPatchedRows = false;
+  const nextItems = incomingCart.items.map((incomingItem) => {
+    const parsedId = Number(incomingItem.id);
+    if (!Number.isInteger(parsedId) || !lockedItemIds.has(parsedId)) {
+      return incomingItem;
+    }
+
+    const previousItem = previousItemsById.get(parsedId);
+    if (!previousItem) {
+      return incomingItem;
+    }
+
+    const nextQuantity = Math.max(
+      1,
+      Math.floor(queuedQuantities.get(parsedId) ?? previousItem.quantity)
+    );
+    const incomingQuantity = Math.max(1, Math.floor(incomingItem.quantity));
+    if (incomingQuantity === nextQuantity) {
+      return incomingItem;
+    }
+
+    hasPatchedRows = true;
+    const unitPrice = getUnitPrice(previousItem);
+
+    return {
+      ...incomingItem,
+      quantity: nextQuantity,
+      prices: {
+        ...incomingItem.prices,
+        row_total: {
+          ...incomingItem.prices.row_total,
+          value: unitPrice * nextQuantity,
+        },
+      },
+    };
+  });
+
+  if (!hasPatchedRows) {
+    return incomingCart;
+  }
+
+  const recalculatedSubtotal = nextItems.reduce((sum, item) => {
+    return sum + getUnitPrice(item) * Math.max(1, Math.floor(item.quantity));
+  }, 0);
+
+  return {
+    ...incomingCart,
+    items: nextItems,
+    total_quantity: nextItems.reduce((sum, item) => sum + Math.max(1, Math.floor(item.quantity)), 0),
+    prices: {
+      ...incomingCart.prices,
+      subtotal_excluding_tax: {
+        ...incomingCart.prices.subtotal_excluding_tax,
+        value: recalculatedSubtotal,
+      },
+    },
+  };
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
+  const { token: authToken, loading: authLoading } = useAuth();
   const [cart, setCart] = useState<Cart | null>(null);
   const [cartId, setCartId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const updateLocksRef = useRef<Set<number>>(new Set());
+  const queuedQuantitiesRef = useRef<Map<number, number>>(new Map());
+  const quantityRequestVersionRef = useRef<Map<number, number>>(new Map());
+  const cartReadRequestVersionRef = useRef(0);
 
-  // Initialize cart on mount
+  // Keep cart in sync with auth state changes (login/logout) without requiring page reload.
   useEffect(() => {
     const initCart = async () => {
-      const authToken = storage.getAuthToken();
+      if (authLoading) {
+        return;
+      }
+
+      setLoading(true);
 
       // Nếu đã đăng nhập -> dùng customerCart (gắn với tài khoản, không cần cart ID)
       if (authToken) {
@@ -92,7 +339,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     };
 
     initCart();
-  }, []);
+  }, [authLoading, authToken]);
 
   /** Tạo cart mới cho khách vãng lai */
   const createGuestCart = async (): Promise<string | null> => {
@@ -110,13 +357,22 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   /** Load cart của khách hàng đã đăng nhập (không cần cart ID) */
   const loadCustomerCart = async (token: string): Promise<string | null> => {
+    const readRequestVersion = ++cartReadRequestVersionRef.current;
     try {
       const data = await graphqlClient<{ customerCart: Cart }>({
         query: GET_CUSTOMER_CART,
         token,
+        cache: 'no-store',
       });
       const customerCart = data.customerCart;
-      setCart(customerCart);
+      if (readRequestVersion === cartReadRequestVersionRef.current) {
+        setCart((previous) => preserveLockedItemSnapshot(
+          previous,
+          customerCart,
+          updateLocksRef.current,
+          queuedQuantitiesRef.current
+        ));
+      }
       setCartId(customerCart.id);
       // Sync cart ID vào localStorage để dùng cho các mutation
       storage.setCartId(customerCart.id);
@@ -130,13 +386,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   /** Load cart khách vãng lai theo cart ID */
   const loadGuestCart = async (id: string) => {
+    const readRequestVersion = ++cartReadRequestVersionRef.current;
     try {
       const data = await graphqlClient<{ cart: Cart }>({
         query: GET_CART,
         variables: { cartId: id },
         cache: 'no-store',
       });
-      setCart(data.cart);
+      if (readRequestVersion === cartReadRequestVersionRef.current) {
+        setCart((previous) => preserveLockedItemSnapshot(
+          previous,
+          data.cart,
+          updateLocksRef.current,
+          queuedQuantitiesRef.current
+        ));
+      }
     } catch (error) {
       if (isCartNotFoundError(error)) {
         // Cart thực sự không tồn tại trong Magento -> tạo cart mới
@@ -154,7 +418,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshCart = async () => {
-    const authToken = storage.getAuthToken();
     if (authToken) {
       await loadCustomerCart(authToken);
     } else if (cartId) {
@@ -162,9 +425,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const addToCart = async (sku: string, quantity: number = 1) => {
+  const addToCart = async (sku: string, quantity: number = 1, selectedOptions: string[] = []) => {
     const authToken = storage.getAuthToken();
     let activeCartId = cart?.id || cartId || storage.getCartId();
+    const normalizedSelectedOptions = Array.from(
+      new Set(
+        selectedOptions
+          .map((optionUid) => String(optionUid || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    // For logged-in users, always prefer customerCart ID to avoid stale guest cart IDs.
+    if (authToken) {
+      const customerCartId = await loadCustomerCart(authToken);
+      if (customerCartId) {
+        activeCartId = customerCartId;
+        setCartId(customerCartId);
+      }
+    }
 
     // Tự phục hồi cart ID nếu thiếu (giúp tránh lỗi khi init thất bại do mạng thoáng qua)
     if (!activeCartId) {
@@ -193,7 +472,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
         query: ADD_TO_CART,
         variables: {
           cartId: targetCartId,
-          cartItems: [{ sku, quantity }],
+          cartItems: [
+            {
+              sku,
+              quantity,
+              ...(normalizedSelectedOptions.length > 0
+                ? { selected_options: normalizedSelectedOptions }
+                : {}),
+            },
+          ],
         },
         token: authToken || undefined,
       });
@@ -210,6 +497,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        storage.removeAuthUser();
         throw new Error('AUTH_REQUIRED');
       }
 
@@ -252,6 +540,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Timeout/network glitches from GraphQL proxy happen intermittently during deploy or upstream spikes.
+      // Retry one time with a freshly resolved cart to prevent user-facing add-to-cart failures.
+      if (isTransientCartError(error)) {
+        try {
+          let recoveredCartId: string | null = null;
+
+          if (authToken) {
+            recoveredCartId = await loadCustomerCart(authToken);
+          } else {
+            recoveredCartId = storage.getCartId() || cart?.id || cartId;
+            if (!recoveredCartId) {
+              recoveredCartId = await createGuestCart();
+            }
+          }
+
+          if (recoveredCartId) {
+            setCartId(recoveredCartId);
+            await executeAdd(recoveredCartId);
+            await refreshCart();
+            return;
+          }
+        } catch (retryError) {
+          console.error('Retry add after transient error failed:', retryError);
+          throw retryError;
+        }
+      }
+
       console.error('Failed to add to cart:', error);
       throw error;
     }
@@ -261,6 +576,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     let activeCartId = cart?.id || cartId || storage.getCartId();
     if (!activeCartId) return;
 
+    const previousCartSnapshot = cart;
     const authToken = storage.getAuthToken();
     const parsedItemId = Number(cartItemId);
     const parsedQuantity = Math.max(1, Math.floor(quantity));
@@ -276,7 +592,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     updateLocksRef.current.add(parsedItemId);
 
     const executeUpdate = async (targetCartId: string) => {
-      await graphqlClient({
+      const data = await graphqlClient<{
+        updateCartItems: {
+          cart: UpdatedCartSnapshot;
+        };
+      }>({
         query: UPDATE_CART_ITEMS,
         variables: {
           cartId: targetCartId,
@@ -284,15 +604,22 @@ export function CartProvider({ children }: { children: ReactNode }) {
         },
         token: authToken || undefined,
       });
+
+      return data.updateCartItems.cart;
     };
 
     try {
-      await executeUpdate(activeCartId);
-
-      await refreshCart();
+      const updatedSnapshot = await executeUpdate(activeCartId);
+      // Invalidate in-flight cart reads so stale responses cannot overwrite this update.
+      cartReadRequestVersionRef.current += 1;
+      setCart((prev) => (prev ? applyServerCartSnapshot(prev, updatedSnapshot) : prev));
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        storage.removeAuthUser();
+        if (previousCartSnapshot) {
+          setCart(previousCartSnapshot);
+        }
         throw new Error('AUTH_REQUIRED');
       }
 
@@ -301,12 +628,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
         if (recoveredCustomerCartId) {
           activeCartId = recoveredCustomerCartId;
           setCartId(recoveredCustomerCartId);
-          await executeUpdate(activeCartId);
-          await refreshCart();
+          const updatedSnapshot = await executeUpdate(activeCartId);
+          cartReadRequestVersionRef.current += 1;
+          setCart((prev) => (prev ? applyServerCartSnapshot(prev, updatedSnapshot) : prev));
           return;
         }
       }
 
+      if (previousCartSnapshot) {
+        setCart(previousCartSnapshot);
+      }
       console.error('Failed to update quantity:', error);
       throw error;
     } finally {
@@ -343,6 +674,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (authToken && isAuthTokenInvalidError(error)) {
         storage.removeAuthToken();
+        storage.removeAuthUser();
         throw new Error('AUTH_REQUIRED');
       }
 

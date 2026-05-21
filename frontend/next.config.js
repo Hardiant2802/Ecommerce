@@ -36,6 +36,24 @@ const nextConfig = {
   env: {
     MAGENTO_GRAPHQL_URL: process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL,
   },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: '/admin/:path*',
+          destination: 'http://app:8000/admin/:path*',
+        },
+        {
+          source: '/static/:path*',
+          destination: 'http://app:8000/static/:path*',
+        },
+        {
+          source: '/media/:path*',
+          destination: 'http://app:8000/media/:path*',
+        },
+      ],
+    };
+  },
 };
 
 module.exports = nextConfig;

@@ -3,3 +3,7 @@ set -o errexit
 
 bin/docker-compose stop tunnel || true
 bin/docker-compose rm -f tunnel || true
+docker stop e-commerce-tunnel-1 >/dev/null 2>&1 || true
+docker rm e-commerce-tunnel-1 >/dev/null 2>&1 || true
+docker stop e-commerce_tunnel_1 >/dev/null 2>&1 || true
+docker rm e-commerce_tunnel_1 >/dev/null 2>&1 || true

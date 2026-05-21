@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatPrice } from '@/lib/utils/formatters';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
+import { buildProductPath } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
 import { useCart, useAuth } from '@/lib/hooks';
+import { useToast } from '@/context/ToastContext';
 import { useState } from 'react';
 
 interface ProductCardProps {
@@ -38,20 +40,27 @@ interface ProductCardProps {
     }>;
     updated_at?: string;
     stock_status?: string;
+    categories?: Array<{
+      name?: string;
+      url_key?: string;
+      url_path?: string;
+    }>;
   };
+  currentBrand?: string;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({ product, currentBrand }: ProductCardProps) {
   const router = useRouter();
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
+  const { showToast } = useToast();
   const [adding, setAdding] = useState(false);
 
   // Always show original price (no discount)
   const price = product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
-  const productUrl = `/product/${product.sku}`;
+  const productUrl = buildProductPath(product, currentBrand);
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 
   const handleAddToCart = async (e: React.MouseEvent) => {
@@ -60,21 +69,28 @@ export default function ProductCard({ product }: ProductCardProps) {
 
     // Require login before purchasing
     if (!isAuthenticated) {
-      router.push(`/login?redirect=/product/${product.sku}`);
+      router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
       return;
     }
 
     setAdding(true);
     try {
       await addToCart(product.sku, 1);
+      showToast(`Đã thêm "${product.name}" vào giỏ hàng`, 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
       if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
-        router.push(`/login?redirect=/product/${product.sku}`);
+        router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
         return;
       }
+
+      if (message.includes('required option') || message.includes("weren't entered")) {
+        router.push(productUrl);
+        return;
+      }
+
       console.error('Error adding to cart:', error);
-      alert('Không thể thêm sản phẩm vào giỏ hàng');
+      showToast('Không thể thêm sản phẩm vào giỏ hàng', 'error');
     } finally {
       setAdding(false);
     }
@@ -91,10 +107,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
             loading="lazy"
             onError={(event) => {
-              const target = event.currentTarget;
-              if (!target.src.endsWith('/images/placeholder.svg')) {
-                target.src = '/images/placeholder.svg';
-              }
+              event.currentTarget.style.visibility = 'hidden';
             }}
           />
           {!inStock && (

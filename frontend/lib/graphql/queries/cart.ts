@@ -13,6 +13,7 @@ export const GET_CART = `
       email
       total_quantity
       items {
+        uid
         id
         product {
           sku
@@ -39,6 +40,17 @@ export const GET_CART = `
           row_total {
             value
             currency
+          }
+        }
+        ... on SimpleCartItem {
+          customizable_options {
+            label
+            customizable_option_uid
+            values {
+              value
+              label
+              customizable_option_value_uid
+            }
           }
         }
       }
@@ -63,6 +75,7 @@ export const GET_CUSTOMER_CART = `
       email
       total_quantity
       items {
+        uid
         id
         product {
           sku
@@ -89,6 +102,17 @@ export const GET_CUSTOMER_CART = `
           row_total {
             value
             currency
+          }
+        }
+        ... on SimpleCartItem {
+          customizable_options {
+            label
+            customizable_option_uid
+            values {
+              value
+              label
+              customizable_option_value_uid
+            }
           }
         }
       }
