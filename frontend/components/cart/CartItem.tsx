@@ -110,8 +110,9 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
   };
 
   return (
-    <div className="flex gap-4 py-4 border-b">
-      <div className="relative w-24 h-24 bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
+    <div className="flex gap-3 py-4 border-b">
+      {/* Ảnh sản phẩm */}
+      <div className="relative w-20 h-20 sm:w-24 sm:h-24 bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
         <img
           src={imageUrl}
           alt={item.product.name}
@@ -122,33 +123,42 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
         />
       </div>
 
-      <div className="flex-grow">
-        <h3 className="font-semibold text-gray-900 mb-1">
-          {item.product.name}
-        </h3>
+      {/* Thông tin sản phẩm */}
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-start gap-2">
+          <h3 className="font-semibold text-gray-900 text-sm sm:text-base leading-tight">
+            {item.product.name}
+          </h3>
+          {/* Giá tổng — hiện bên phải trên mobile */}
+          <p className="font-bold text-base sm:text-lg flex-shrink-0 text-gray-900">
+            {formatPrice(displayRowTotal, displayCurrency)}
+          </p>
+        </div>
+
         {selectedOptionLines.map((line) => (
-          <p key={line} className="text-xs text-gray-500 mb-1">
+          <p key={line} className="text-xs text-gray-500 mt-0.5">
             {line}
           </p>
         ))}
-        <p className="text-sm text-gray-600 mb-2">
-          {formatPrice(displayUnitPrice, displayCurrency)}
+        <p className="text-xs sm:text-sm text-gray-500 mt-1">
+          Đơn giá: {formatPrice(displayUnitPrice, displayCurrency)}
         </p>
 
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-2 mt-2">
           <div className="flex items-center border border-gray-300 rounded-md">
             <button
               onClick={handleDecrease}
               disabled={normalizedQuantity <= 1 || updating}
-              className="px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2.5 py-1 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               -
             </button>
-            <span className="px-4 py-1 border-x">{normalizedQuantity}</span>
+            <span className="px-3 py-1 border-x text-sm">{normalizedQuantity}</span>
             <button
               onClick={handleIncrease}
               disabled={updating}
-              className="px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2.5 py-1 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               +
             </button>
@@ -157,7 +167,7 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
           <button
             onClick={() => onRemove(item.id)}
             disabled={updating}
-            className="text-sm text-red-600 hover:text-red-700 disabled:opacity-50"
+            className="text-xs sm:text-sm text-red-600 hover:text-red-700 disabled:opacity-50"
           >
             Xóa
           </button>
@@ -165,17 +175,11 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
           <button
             onClick={() => onCheckout(item.uid || item.id, item.product.sku)}
             disabled={updating}
-            className="text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-3 py-1 rounded-md transition-colors"
+            className="text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-2.5 py-1 rounded-md transition-colors"
           >
-            Thanh toán riêng
+            Mua riêng
           </button>
         </div>
-      </div>
-
-      <div className="text-right">
-        <p className="font-bold text-lg">
-          {formatPrice(displayRowTotal, displayCurrency)}
-        </p>
       </div>
     </div>
   );

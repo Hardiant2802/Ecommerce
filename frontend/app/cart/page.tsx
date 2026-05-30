@@ -149,6 +149,7 @@ export default function CartPage() {
   const [loadingPurchased, setLoadingPurchased] = useState(false);
   const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
   const [confirmedOrderIds, setConfirmedOrderIds] = useState<Set<string>>(new Set());
+  const [showAllPurchased, setShowAllPurchased] = useState(false);
   const pendingCartSyncHandledRef = useRef(false);
 
   const safeCartItems = useMemo(() => {
@@ -532,6 +533,8 @@ export default function CartPage() {
     </div>
   ) : null;
 
+  const INITIAL_SHOW = 5;
+
   const purchasedSection = (
     <div className="mt-10">
       <div className="bg-white rounded-lg shadow-sm p-6">
@@ -551,7 +554,7 @@ export default function CartPage() {
                 {repurchaseError}
               </div>
             )}
-            {purchasedProducts.map((product) => (
+            {(showAllPurchased ? purchasedProducts : purchasedProducts.slice(0, INITIAL_SHOW)).map((product) => (
               <div key={product.sku} className="rounded-lg border border-gray-200 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -573,6 +576,18 @@ export default function CartPage() {
                 </div>
               </div>
             ))}
+
+            {purchasedProducts.length > INITIAL_SHOW && (
+              <button
+                type="button"
+                onClick={() => setShowAllPurchased((prev) => !prev)}
+                className="w-full py-2.5 text-sm font-semibold text-primary-600 hover:text-primary-700 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors"
+              >
+                {showAllPurchased
+                  ? '▲ Rút gọn'
+                  : `▼ Xem thêm ${purchasedProducts.length - INITIAL_SHOW} sản phẩm`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -618,12 +633,12 @@ export default function CartPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container-custom">
-        <h1 className="text-3xl font-bold mb-8">Giỏ hàng</h1>
+        <h1 className="text-2xl md:text-3xl font-bold mb-6">Giỏ hàng</h1>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-3 gap-4 md:gap-8">
           {/* Cart Items */}
           <div className="md:col-span-2">
-            <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
               {safeCartItems.map((item) => {
                 const rowKey = item.uid || item.id || item.product.sku;
                 return (

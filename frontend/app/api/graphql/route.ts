@@ -13,7 +13,7 @@ const FRONTEND_HOSTS = new Set([
   'e-commerce-75g.pages.dev',
   'main.e-commerce-75g.pages.dev',
 ]);
-const GRAPHQL_PROXY_CACHE_TTL_MS = 5_000;
+const GRAPHQL_PROXY_CACHE_TTL_MS = 2 * 60 * 1000; // 2 phút
 const DEFAULT_GRAPHQL_PROXY_TIMEOUT_MS = 12_000;
 
 type CachedGraphqlResponse = {
@@ -43,6 +43,29 @@ function shouldCacheRequest(body: unknown, hasAuthHeader: boolean): boolean {
   }
 
   return !/\bmutation\b/i.test(query);
+}
+
+/**
+ * Kiểm tra payload có chứa dữ liệu thực sự không (không cache kết quả rỗng).
+ * Tránh cache trường hợp Magento trả về total_count: 0 do OpenSearch down.
+ */
+function isPayloadWorthCaching(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = (payload as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return true; // không phải products query → cache bình thường
+
+  // Kiểm tra nếu là products query → không cache nếu total_count = 0
+  const anyData = data as Record<string, unknown>;
+  for (const key of Object.keys(anyData)) {
+    const val = anyData[key];
+    if (val && typeof val === 'object') {
+      const totalCount = (val as { total_count?: unknown }).total_count;
+      if (totalCount !== undefined && Number(totalCount) === 0) {
+        return false; // Không cache kết quả 0 sản phẩm
+      }
+    }
+  }
+  return true;
 }
 
 function getCachedProxyResponse(cacheKey: string): CachedGraphqlResponse | null {
@@ -194,7 +217,7 @@ export async function POST(request: NextRequest) {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-            'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=10',
+            'Cache-Control': 'public, max-age=120, s-maxage=120, stale-while-revalidate=60',
             'X-GraphQL-Proxy-Cache': 'HIT',
           }
         });
@@ -223,7 +246,7 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        if (canCache && response.ok && isJson) {
+        if (canCache && response.ok && isJson && isPayloadWorthCaching(payload)) {
           proxyCache.set(cacheKey, {
             expiresAt: Date.now() + GRAPHQL_PROXY_CACHE_TTL_MS,
             status: response.status,
@@ -238,7 +261,7 @@ export async function POST(request: NextRequest) {
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'Cache-Control': canCache
-              ? 'public, max-age=5, s-maxage=5, stale-while-revalidate=10'
+              ? 'public, max-age=120, s-maxage=120, stale-while-revalidate=60'
               : 'no-store',
             'X-GraphQL-Proxy-Cache': canCache ? 'MISS' : 'BYPASS',
             'X-GraphQL-Upstream-Format': isJson ? 'JSON' : 'TEXT',

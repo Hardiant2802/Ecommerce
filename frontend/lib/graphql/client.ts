@@ -83,7 +83,7 @@ export async function graphqlClient<T>({
   token,
   cache = 'no-store',
   tags = [],
-  ttlMs = 90_000,
+  ttlMs = 5 * 60 * 1000,
   signal,
 }: GraphQLRequestOptions): Promise<T> {
   const canUseBrowserCache =
@@ -147,7 +147,16 @@ export async function graphqlClient<T>({
     }
 
     if (canUseBrowserCache) {
-      setCachedValue(cacheKey, result.data, ttlMs);
+      // Không cache kết quả rỗng (products total_count = 0) để tránh cache sai khi Magento chưa sẵn sàng
+      const isEmptyProductsResult =
+        result.data &&
+        typeof result.data === 'object' &&
+        Object.values(result.data as Record<string, unknown>).some(
+          (v) => v && typeof v === 'object' && (v as { total_count?: unknown }).total_count === 0
+        );
+      if (!isEmptyProductsResult) {
+        setCachedValue(cacheKey, result.data, ttlMs);
+      }
     }
 
     return result.data;
