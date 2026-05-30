@@ -1,7 +1,7 @@
 <?php
 /**
- * Copyright 2016 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 declare(strict_types=1);
 
@@ -225,7 +225,7 @@ class EavTest extends AbstractEavTest
 
     /**
      * @magentoDataFixture Magento/Catalog/_files/attribute_page_layout_default.php
-     * @dataProvider executeModifyMetaNewProductPageLayoutDefaultProvider
+     * @dataProvider testModifyMetaNewProductPageLayoutDefaultProvider
      * @return void
      */
     public function testModifyMetaNewProductPageLayoutDefault($attributesMeta): void
@@ -245,7 +245,7 @@ class EavTest extends AbstractEavTest
     /**
      * @return array
      */
-    public static function executeModifyMetaNewProductPageLayoutDefaultProvider(): array
+    public static function testModifyMetaNewProductPageLayoutDefaultProvider(): array
     {
         return [
             'attributes_meta' => [

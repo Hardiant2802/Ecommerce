@@ -15,7 +15,7 @@ DOMAIN=${1:-magento.test}
 
 bin/stop
 
-bin/start --no-dev
+docker compose -f compose.yaml -f compose.dev-linux.yaml -f compose.healthcheck.yaml up -d
 [ $? != 0 ] && echo "Failed to start Docker services" && exit
 
 bin/clinotty chmod u+x bin/magento

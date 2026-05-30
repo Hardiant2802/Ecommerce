@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchBusinessNews } from '@/lib/services/news';
 import type { NewsApiResponse } from '@/types/news';
 
+export const runtime = 'edge';
+
 // Cache news for 5 minutes (news updates frequently)
 const CACHE_DURATION = 5 * 60 * 1000;
 let cachedData: NewsApiResponse | null = null;
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest) {
       const response = {
         ...cachedData,
         cached: true,
-        error: 'Using cached data due to API error',
+        error: 'Đang dùng dữ liệu đã lưu do lỗi API',
       };
 
       const limit = parseInt(request.nextUrl.searchParams.get('limit') || '10');
@@ -79,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { 
-        error: error instanceof Error ? error.message : 'Failed to fetch news',
+        error: error instanceof Error ? error.message : 'Không thể lấy tin tức',
         timestamp: Date.now(),
       },
       { status: 500 }

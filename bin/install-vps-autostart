@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SERVICE_NAME="ecommerce-public.service"
+SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
+
+cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=E-commerce public stack (Docker + Cloudflare Tunnel)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${ROOT_DIR}
+ExecStart=${ROOT_DIR}/bin/public-up
+ExecStop=${ROOT_DIR}/bin/public-down
+TimeoutStartSec=0
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+
+if [[ "${1:-}" == "--start" ]]; then
+  systemctl restart "$SERVICE_NAME"
+fi
+
+echo "Installed and enabled ${SERVICE_NAME}."
+echo "Use one of the commands below:"
+echo "  systemctl start ${SERVICE_NAME}"
+echo "  systemctl stop ${SERVICE_NAME}"
+echo "  systemctl status ${SERVICE_NAME}"

@@ -2,9 +2,9 @@ import { MetadataRoute } from 'next'
  
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Mobile Phone Store',
-    short_name: 'Mobile Store',
-    description: 'Shop the latest mobile phones',
+    name: 'AH Phone Store',
+    short_name: 'AH Phone',
+    description: 'Mua bán điện thoại chính hãng giá tốt nhất',
     start_url: '/',
     display: 'standalone',
     background_color: '#fff',

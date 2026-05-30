@@ -13,10 +13,19 @@ export const GET_CART = `
       email
       total_quantity
       items {
+        uid
         id
         product {
           sku
           name
+          price_range {
+            minimum_price {
+              regular_price {
+                value
+                currency
+              }
+            }
+          }
           thumbnail {
             url
             label
@@ -31,6 +40,79 @@ export const GET_CART = `
           row_total {
             value
             currency
+          }
+        }
+        ... on SimpleCartItem {
+          customizable_options {
+            label
+            customizable_option_uid
+            values {
+              value
+              label
+              customizable_option_value_uid
+            }
+          }
+        }
+      }
+      prices {
+        grand_total {
+          value
+          currency
+        }
+        subtotal_excluding_tax {
+          value
+          currency
+        }
+      }
+    }
+  }
+`;
+
+export const GET_CUSTOMER_CART = `
+  query GetCustomerCart {
+    customerCart {
+      id
+      email
+      total_quantity
+      items {
+        uid
+        id
+        product {
+          sku
+          name
+          price_range {
+            minimum_price {
+              regular_price {
+                value
+                currency
+              }
+            }
+          }
+          thumbnail {
+            url
+            label
+          }
+        }
+        quantity
+        prices {
+          price {
+            value
+            currency
+          }
+          row_total {
+            value
+            currency
+          }
+        }
+        ... on SimpleCartItem {
+          customizable_options {
+            label
+            customizable_option_uid
+            values {
+              value
+              label
+              customizable_option_value_uid
+            }
           }
         }
       }

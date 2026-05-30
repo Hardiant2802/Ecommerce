@@ -39,7 +39,7 @@ export function useCurrency(): UseCurrencyReturn {
           setLastUpdated(data.data.lastUpdated);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch exchange rates');
+        setError(err instanceof Error ? err.message : 'Không thể lấy tỉ giá');
       } finally {
         setLoading(false);
       }

@@ -91,7 +91,14 @@ location ~* ^/update($|/) {
     }
 }
 
-# Keep Magento backend endpoints available when FE is served at root.
+# ── Cloudflare Tunnel: restore real client IP ───────────────────────────────
+# Traffic arrives from the cloudflared sidecar (Docker network 172.16-31.x.x).
+# CF-Connecting-IP contains the original user IP set by Cloudflare edge.
+set_real_ip_from  172.16.0.0/12;
+real_ip_header    CF-Connecting-IP;
+real_ip_recursive on;
+
+# ── Magento backend endpoints ────────────────────────────────────────────────
 location /admin {
     try_files $uri $uri/ /index.php$is_args$args;
 }
@@ -113,15 +120,19 @@ location /bai2 {
 }
 
 location / {
-    proxy_pass http://host.docker.internal:3000;
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $frontend_upstream http://frontend:3000;
+    proxy_pass $frontend_upstream;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
     proxy_cache_bypass $http_upgrade;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Pass real user IP (restored above by set_real_ip_from)
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header CF-Connecting-IP  $http_cf_connecting_ip;
 }
 
 location /pub/ {

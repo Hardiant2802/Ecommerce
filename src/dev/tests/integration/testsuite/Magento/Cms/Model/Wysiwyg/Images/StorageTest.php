@@ -1,7 +1,8 @@
 <?php
 /**
- * Copyright 2013 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
+ *
  */
 namespace Magento\Cms\Model\Wysiwyg\Images;
 
@@ -238,7 +239,7 @@ class StorageTest extends \PHPUnit\Framework\TestCase
      * @param string|null $storageType
      *
      * @return void
-     * @dataProvider executeUploadFileWithWrongExtensionDataProvider
+     * @dataProvider testUploadFileWithWrongExtensionDataProvider
      */
     public function testUploadFileWithWrongExtension(string $fileName, string $fileType, ?string $storageType): void
     {
@@ -267,7 +268,7 @@ class StorageTest extends \PHPUnit\Framework\TestCase
     /**
      * @return array
      */
-    public static function executeUploadFileWithWrongExtensionDataProvider(): array
+    public static function testUploadFileWithWrongExtensionDataProvider(): array
     {
         return [
             [

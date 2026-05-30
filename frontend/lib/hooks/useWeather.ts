@@ -55,7 +55,7 @@ export function useWeather(options: UseWeatherOptions = {}): UseWeatherReturn {
           setWeather(transformed);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch weather');
+        setError(err instanceof Error ? err.message : 'Không thể lấy dữ liệu thời tiết');
       } finally {
         setLoading(false);
       }

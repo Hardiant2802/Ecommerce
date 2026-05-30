@@ -6,43 +6,43 @@ export const CATEGORIES = [
     name: 'iPhone',
     slug: 'iphone',
     image: '/images/categories/iphone.jpg',
-    description: 'Latest Apple iPhone models',
+    description: 'Các mẫu iPhone Apple mới nhất',
   },
   {
     id: '4',
     name: 'Samsung',
     slug: 'samsung',
     image: '/images/categories/samsung.jpg',
-    description: 'Samsung Galaxy series',
+    description: 'Dòng Samsung Galaxy',
   },
   {
     id: '5',
     name: 'Xiaomi',
     slug: 'xiaomi',
     image: '/images/categories/xiaomi.jpg',
-    description: 'Xiaomi smartphones',
+    description: 'Điện thoại Xiaomi',
   },
   {
     id: '6',
     name: 'OPPO',
     slug: 'oppo',
     image: '/images/categories/oppo.jpg',
-    description: 'OPPO mobile phones',
+    description: 'Điện thoại OPPO',
   },
   {
     id: '7',
     name: 'Vivo',
     slug: 'vivo',
     image: '/images/categories/vivo.jpg',
-    description: 'Vivo smartphones',
+    description: 'Điện thoại Vivo',
   },
 ];
 
 export const SORT_OPTIONS = [
-  { value: 'position', label: 'Featured' },
-  { value: 'name', label: 'Name: A-Z' },
-  { value: 'price_asc', label: 'Price: Low to High' },
-  { value: 'price_desc', label: 'Price: High to Low' },
+  { value: 'position', label: 'Nổi bật' },
+  { value: 'name', label: 'Tên: A-Z' },
+  { value: 'price_asc', label: 'Giá: thấp đến cao' },
+  { value: 'price_desc', label: 'Giá: cao đến thấp' },
 ];
 
 export const PAGE_SIZE = 12;

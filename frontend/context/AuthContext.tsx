@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { User, LoginCredentials, RegisterInput } from '@/types/user';
 import { storage } from '@/lib/utils/storage';
 import { graphqlClient } from '@/lib/graphql/client';
-import { GENERATE_CUSTOMER_TOKEN, GET_CUSTOMER, CREATE_CUSTOMER } from '@/lib/graphql/queries/auth';
+import { GENERATE_CUSTOMER_TOKEN, GET_CUSTOMER } from '@/lib/graphql/queries/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -19,76 +19,152 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(() => storage.getAuthToken());
+  const [user, setUser] = useState<User | null>(() => storage.getAuthUser<User>());
+  const [loading, setLoading] = useState<boolean>(() => {
+    const cachedToken = storage.getAuthToken();
+    const cachedUser = storage.getAuthUser<User>();
+    return Boolean(cachedToken) && !cachedUser;
+  });
 
-  // Load token and user on mount
+  const formatGraphqlError = (error: unknown): string => {
+    if (!(error instanceof Error)) {
+      return 'Đã xảy ra lỗi không mong muốn. Vui lòng thử lại.';
+    }
+
+    const message = error.message.toLowerCase();
+
+    if (message.includes('graphql error occurred')) {
+      return 'Yêu cầu không thành công. Vui lòng thử lại.';
+    }
+    if (message.includes('invalid login or password')) {
+      return 'Email hoặc mật khẩu không đúng.';
+    }
+    if (message.includes('account sign-in was incorrect')) {
+      return 'Email hoặc mật khẩu không đúng.';
+    }
+    if (message.includes('internal server error')) {
+      return 'Dịch vụ đăng nhập tạm thời gián đoạn. Vui lòng thử lại sau ít phút.';
+    }
+    if (message.includes('already exists')) {
+      return 'Email này đã được đăng ký.';
+    }
+    if (message.includes('network') || message.includes('fetch')) {
+      return 'Không thể kết nối tới Magento. Vui lòng kiểm tra hệ thống và thử lại.';
+    }
+    if (message.includes('http error 5')) {
+      return 'Dịch vụ Magento đang tạm thời không khả dụng. Vui lòng thử lại sau.';
+    }
+
+    return 'Đăng nhập không thành công. Vui lòng thử lại.';
+  };
+
+  const loadCustomer = async (customerToken: string): Promise<User> => {
+    const data = await graphqlClient<{ customer: User }>({
+      query: GET_CUSTOMER,
+      token: customerToken,
+    });
+
+    return data.customer;
+  };
+
   useEffect(() => {
-    const loadUser = async () => {
-      // Skip auth if no backend
-      if (process.env.NEXT_PUBLIC_MAGENTO_GRAPHQL_URL === 'http://localhost/graphql') {
-        console.log('Demo mode: No authentication backend');
+    const bootstrapAuth = async () => {
+      const storedToken = storage.getAuthToken();
+      const cachedUser = storage.getAuthUser<User>();
+
+      if (!storedToken) {
+        setToken(null);
+        setUser(null);
+        storage.removeAuthUser();
         setLoading(false);
         return;
       }
 
-      const storedToken = storage.getAuthToken();
-      if (storedToken) {
-        setToken(storedToken);
-        try {
-          const data = await graphqlClient<{ customer: User }>({
-            query: GET_CUSTOMER,
-            token: storedToken,
-          });
-          setUser(data.customer);
-        } catch (error) {
-          console.error('Failed to load user:', error);
-          storage.removeAuthToken();
-          setToken(null);
-        }
+      setToken(storedToken);
+      if (cachedUser) {
+        setUser(cachedUser);
       }
-      setLoading(false);
+
+      try {
+        const customer = await loadCustomer(storedToken);
+        setUser(customer);
+        storage.setAuthUser(customer);
+      } catch {
+        storage.removeAuthToken();
+        storage.removeAuthUser();
+        setToken(null);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    loadUser();
+    bootstrapAuth();
   }, []);
 
   const login = async (credentials: LoginCredentials) => {
     try {
       const data = await graphqlClient<{ generateCustomerToken: { token: string } }>({
         query: GENERATE_CUSTOMER_TOKEN,
-        variables: credentials,
+        variables: {
+          email: credentials.email.trim(),
+          password: credentials.password,
+        },
       });
 
       const newToken = data.generateCustomerToken.token;
+      if (!newToken) {
+        throw new Error('Đăng nhập thất bại do thiếu mã xác thực khách hàng.');
+      }
+
       setToken(newToken);
       storage.setAuthToken(newToken);
 
-      // Fetch user data
-      const userData = await graphqlClient<{ customer: User }>({
-        query: GET_CUSTOMER,
-        token: newToken,
-      });
-      setUser(userData.customer);
+      const customer = await loadCustomer(newToken);
+      setUser(customer);
+      storage.setAuthUser(customer);
     } catch (error) {
-      console.error('Login failed:', error);
-      throw error;
+      throw new Error(formatGraphqlError(error));
     }
   };
 
   const register = async (input: RegisterInput) => {
     try {
-      await graphqlClient<{ createCustomerV2: { customer: User } }>({
-        query: CREATE_CUSTOMER,
-        variables: { input },
+      const response = await fetch('/api/auth/register-with-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstname: input.firstname.trim(),
+          lastname: input.lastname.trim(),
+          email: input.email.trim(),
+          password: input.password,
+          otpVerificationToken: input.otpVerificationToken,
+        }),
       });
 
-      // Auto-login after registration
-      await login({ email: input.email, password: input.password });
+      const payload = (await response.json()) as {
+        token?: string;
+        user?: User;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || 'Registration failed.');
+      }
+
+      if (!payload.token || !payload.user) {
+        throw new Error('Registration succeeded but login session could not be created.');
+      }
+
+      setToken(payload.token);
+      setUser(payload.user);
+      storage.setAuthToken(payload.token);
+      storage.setAuthUser(payload.user);
     } catch (error) {
-      console.error('Registration failed:', error);
-      throw error;
+      throw new Error(formatGraphqlError(error));
     }
   };
 
@@ -96,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     storage.removeAuthToken();
+    storage.removeAuthUser();
   };
 
   const value: AuthContextType = {
@@ -105,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     register,
     logout,
-    isAuthenticated: !!user && !!token,
+    isAuthenticated: Boolean(user && token),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

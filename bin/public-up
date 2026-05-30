@@ -7,11 +7,13 @@ cd "$ROOT_DIR"
 echo "Starting Docker services..."
 bin/docker-compose up -d --remove-orphans
 
+echo "Ensuring Magento cron daemon is running..."
+bin/cli touch /var/www/html/var/.cron-enabled >/dev/null 2>&1 || true
+bin/root sh -lc 'pgrep -x cron >/dev/null || /usr/sbin/cron'
+bin/root sh -lc 'pgrep -x cron >/dev/null && echo "Magento cron: running" || echo "Magento cron: not running"'
+
 echo "Starting Cloudflare tunnel..."
 bin/tunnel-start
-
-echo "Starting Next.js frontend..."
-bin/frontend-start "$@"
 
 echo "Public stack is up."
 echo "Try: https://ahphonestore.id.vn"

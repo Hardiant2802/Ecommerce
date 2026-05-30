@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
-import { useState } from 'react';
-import { Gamepad2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Cable, Gamepad2, Headphones } from 'lucide-react';
 import {
   SiApple,
   SiSamsung,
@@ -17,31 +17,56 @@ import {
 
 // Cấu hình các hãng với kích thước logo đã được cân chỉnh
 const BRANDS = [
-  { name: 'Apple', slug: 'apple', icon: SiApple, href: '/products?brand=apple', size: 24 },
-  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/products?brand=samsung', size: 56 },
-  { name: 'Xiaomi', slug: 'xiaomi', icon: SiXiaomi, href: '/products?brand=xiaomi', size: 24 },
-  { name: 'Oppo', slug: 'oppo', icon: SiOppo, href: '/products?brand=oppo', size: 40 },
-  { name: 'One Plus', slug: 'oneplus', icon: SiOneplus, href: '/products?brand=oneplus', size: 28 },
-  { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/products?brand=vivo', size: 40 },
-  { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/products?brand=asus', size: 40 },
-  { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/products?brand=red-magic', size: 24 },
+  { name: 'Apple', slug: 'apple', icon: SiApple, href: '/apple', size: 24 },
+  { name: 'Samsung', slug: 'samsung', icon: SiSamsung, href: '/samsung', size: 56 },
+  { name: 'Xiaomi', slug: 'xiaomi', icon: SiXiaomi, href: '/xiaomi', size: 24 },
+  { name: 'Oppo', slug: 'oppo', icon: SiOppo, href: '/oppo', size: 40 },
+  { name: 'One Plus', slug: 'oneplus', icon: SiOneplus, href: '/oneplus', size: 28 },
+  { name: 'Vivo', slug: 'vivo', icon: SiVivo, href: '/vivo', size: 40 },
+  { name: 'Asus', slug: 'asus', icon: SiAsus, href: '/asus', size: 40 },
+  { name: 'Red Magic', slug: 'red-magic', icon: Gamepad2, href: '/red-magic', size: 24 },
+  { name: 'Tai nghe', slug: 'tai-nghe', icon: Headphones, href: '/tai-nghe', size: 22 },
+  { name: 'Phụ kiện', slug: 'phu-kien', icon: Cable, href: '/phu-kien', size: 22 },
 ];
 
 export default function MobileCityHeader() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, loading: authLoading } = useAuth();
   const { itemCount } = useCart();
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Hà Nội');
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const activeBrand = pathname === '/products' ? searchParams.get('brand') : null;
+  const activeBrand = BRANDS.find((brand) => pathname === brand.href)?.slug || (pathname === '/products' ? searchParams.get('brand') : null);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       window.location.href = `/products?search=${encodeURIComponent(searchQuery)}`;
     }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!userMenuRef.current) return;
+      if (!userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    setUserMenuOpen(false);
+    router.refresh();
   };
 
   return (
@@ -74,21 +99,21 @@ export default function MobileCityHeader() {
 
         {/* Main Header: Logo, Thanh tìm kiếm, Đăng nhập, Giỏ hàng */}
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-6">
             {/* Logo AH PHONE STORE */}
-            <Link href="/" className="flex-shrink-0">
+            <Link href="/" className="flex-shrink-0 order-1">
               <div className="flex items-center gap-2">
                 <div className="flex flex-col items-center text-white">
                   <div className="text-2xl font-bold leading-none">|||</div>
                 </div>
-                <h1 className="text-2xl font-bold text-white leading-tight uppercase tracking-tight">
+                <h1 className="text-2xl font-bold text-white leading-tight uppercase tracking-tight hidden sm:block">
                   AH Phone Store
                 </h1>
               </div>
             </Link>
 
             {/* Thanh tìm kiếm */}
-            <form onSubmit={handleSearch} className="flex-1 max-w-2xl">
+            <form onSubmit={handleSearch} className="order-3 basis-full sm:order-2 sm:basis-auto flex-1 max-w-2xl">
               <div className="relative">
                 <input
                   type="text"
@@ -109,46 +134,62 @@ export default function MobileCityHeader() {
             </form>
 
             {/* Tài khoản & Giỏ hàng */}
-            <div className="flex items-center gap-3">
-              {isAuthenticated && user ? (
-                <div className="relative group">
-                  <button className="flex flex-col items-center text-white hover:opacity-80">
+            <div className="order-2 sm:order-3 flex items-center gap-1 sm:gap-3 flex-shrink-0">
+              {authLoading ? (
+                <div className="flex items-center gap-1 sm:gap-3" aria-label="Đang tải tài khoản">
+                  <div className="h-11 w-20 sm:w-24 rounded-lg bg-white/70 animate-pulse" />
+                  <div className="h-11 w-20 sm:w-24 rounded-lg bg-white/70 animate-pulse" />
+                </div>
+              ) : isAuthenticated && user ? (
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setUserMenuOpen((prev) => !prev)}
+                    className="flex flex-col items-center text-white hover:opacity-80"
+                  >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    <span className="text-xs mt-1 font-medium">{user.firstname}</span>
+                    <span className="text-xs mt-1 font-medium hidden sm:block">{user.firstname}</span>
                   </button>
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 hidden group-hover:block z-[60] border border-gray-100">
-                    <button
-                      onClick={logout}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                    >
-                      Đăng xuất
-                    </button>
-                  </div>
+                  {userMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-2 z-[60] border border-gray-100">
+                      <div className="px-4 py-2 border-b border-gray-100">
+                        <p className="text-sm font-semibold text-gray-900">{`${user.firstname} ${user.lastname}`}</p>
+                        <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        Đăng xuất
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
-                  <Link href="/login" className="bg-white text-gold px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 flex flex-col items-center text-sm transition-all shadow-sm">
+                  <Link href="/login" className="bg-white text-gold px-2 sm:px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 flex flex-col items-center text-sm transition-all shadow-sm">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
                     </svg>
-                    Đăng nhập
+                    <span className="hidden sm:block">Đăng nhập</span>
                   </Link>
-                  <Link href="/register" className="bg-white text-gold px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 flex flex-col items-center text-sm transition-all shadow-sm">
+                  <Link href="/register" className="bg-white text-gold px-2 sm:px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 flex flex-col items-center text-sm transition-all shadow-sm">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                     </svg>
-                    Đăng ký
+                    <span className="hidden sm:block">Đăng ký</span>
                   </Link>
                 </>
               )}
 
-              <Link href="/cart" className="relative flex flex-col items-center text-white hover:opacity-80 transition-opacity">
+              <Link href="/cart" className="relative flex flex-col items-center text-white hover:opacity-80 transition-opacity flex-shrink-0">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63-.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                <span className="text-xs mt-1 font-medium">Giỏ hàng</span>
+                <span className="text-xs mt-1 font-medium hidden sm:block">Giỏ hàng</span>
                 {itemCount > 0 && (
                   <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold border-2 border-gold animate-pulse">
                     {itemCount}

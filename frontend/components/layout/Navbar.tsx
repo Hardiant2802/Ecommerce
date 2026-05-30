@@ -1,13 +1,23 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
 import { useState } from 'react';
 
 export default function Navbar() {
   const { user, logout, isAuthenticated } = useAuth();
   const { itemCount } = useCart();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleCartClick = (e: React.MouseEvent) => {
+    if (!isAuthenticated) {
+      e.preventDefault();
+      alert('Vui lòng đăng nhập để xem giỏ hàng');
+      router.push('/login');
+    }
+  };
 
   return (
     <nav className="bg-white shadow-sm sticky top-0 z-50">
@@ -19,17 +29,17 @@ export default function Navbar() {
               <span className="text-white font-bold text-xl">M</span>
             </div>
             <span className="text-xl font-bold text-gray-900 hidden sm:block">
-              Mobile Store
+              Cửa hàng điện thoại
             </span>
           </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
             <Link
-              href="/products"
+              href="/"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
-              Products
+              Sản phẩm
             </Link>
             <Link
               href="/news"
@@ -38,22 +48,34 @@ export default function Navbar() {
               Tin Tức
             </Link>
             <Link
-              href="/products?category=iphone"
+              href="/iphone"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
               iPhone
             </Link>
             <Link
-              href="/products?category=samsung"
+              href="/samsung"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
               Samsung
             </Link>
             <Link
-              href="/products?category=xiaomi"
+              href="/xiaomi"
               className="text-gray-700 hover:text-primary-600 transition-colors"
             >
               Xiaomi
+            </Link>
+            <Link
+              href="/tai-nghe"
+              className="text-gray-700 hover:text-primary-600 transition-colors"
+            >
+              Tai nghe
+            </Link>
+            <Link
+              href="/phu-kien"
+              className="text-gray-700 hover:text-primary-600 transition-colors"
+            >
+              Phụ kiện
             </Link>
           </div>
 
@@ -62,6 +84,7 @@ export default function Navbar() {
             {/* Cart */}
             <Link
               href="/cart"
+              onClick={handleCartClick}
               className="relative p-2 text-gray-700 hover:text-primary-600 transition-colors"
             >
               <svg
@@ -108,7 +131,7 @@ export default function Navbar() {
                     onClick={logout}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                   >
-                    Logout
+                    Đăng xuất
                   </button>
                 </div>
               </div>
@@ -117,7 +140,7 @@ export default function Navbar() {
                 href="/login"
                 className="text-gray-700 hover:text-primary-600 transition-colors hidden md:block"
               >
-                Login
+                Đăng nhập
               </Link>
             )}
 
@@ -157,11 +180,11 @@ export default function Navbar() {
           <div className="md:hidden py-4 border-t">
             <div className="flex flex-col space-y-3">
               <Link
-                href="/products"
+                href="/"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                Products
+                Sản phẩm
               </Link>
               <Link
                 href="/news"
@@ -171,25 +194,39 @@ export default function Navbar() {
                 Tin Tức
               </Link>
               <Link
-                href="/products?category=iphone"
+                href="/iphone"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 iPhone
               </Link>
               <Link
-                href="/products?category=samsung"
+                href="/samsung"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Samsung
               </Link>
               <Link
-                href="/products?category=xiaomi"
+                href="/xiaomi"
                 className="text-gray-700 hover:text-primary-600 px-2 py-1"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Xiaomi
+              </Link>
+              <Link
+                href="/tai-nghe"
+                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Tai nghe
+              </Link>
+              <Link
+                href="/phu-kien"
+                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Phụ kiện
               </Link>
               {!isAuthenticated && (
                 <Link
@@ -197,7 +234,7 @@ export default function Navbar() {
                   className="text-gray-700 hover:text-primary-600 px-2 py-1"
                   onClick={() => setMobileMenuOpen(false)}
                 >
-                  Login
+                  Đăng nhập
                 </Link>
               )}
             </div>

@@ -21,5 +21,22 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-bin/docker-compose --profile tunnel up -d tunnel
-bin/docker-compose ps tunnel
+echo "Using tunnel token from $TOKEN_FILE"
+export TUNNEL_TOKEN="$TOKEN"
+
+if ! bin/docker-compose --profile tunnel up -d --no-deps tunnel; then
+  echo "docker-compose tunnel start failed, trying direct container fallback..."
+  if docker ps -a --format '{{.Names}}' | grep -Eq '^e-commerce[-_]tunnel[-_]1$'; then
+    docker start e-commerce-tunnel-1 >/dev/null 2>&1 || docker start e-commerce_tunnel_1
+  else
+    docker run -d \
+      --name e-commerce-tunnel-1 \
+      --network e-commerce_default \
+      --restart unless-stopped \
+      -e TUNNEL_TOKEN="$TUNNEL_TOKEN" \
+      cloudflare/cloudflared:latest \
+      tunnel --no-autoupdate run
+  fi
+fi
+
+docker ps --filter name=e-commerce-tunnel-1 --filter name=e-commerce_tunnel_1

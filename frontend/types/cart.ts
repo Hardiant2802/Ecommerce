@@ -1,9 +1,30 @@
 // Cart Types
+export interface CartCustomizableOptionValue {
+  value: string;
+  label?: string;
+  customizable_option_value_uid?: string;
+}
+
+export interface CartCustomizableOption {
+  label: string;
+  customizable_option_uid?: string;
+  values: CartCustomizableOptionValue[];
+}
+
 export interface CartItem {
   id: string;
+  uid?: string;
   product: {
     sku: string;
     name: string;
+    price_range?: {
+      minimum_price?: {
+        regular_price?: {
+          value: number;
+          currency: string;
+        };
+      };
+    };
     thumbnail: {
       url: string;
       label: string;
@@ -20,6 +41,7 @@ export interface CartItem {
       currency: string;
     };
   };
+  customizable_options?: CartCustomizableOption[];
 }
 
 export interface Cart {
@@ -43,6 +65,7 @@ export interface AddToCartInput {
   cartId: string;
   sku: string;
   quantity: number;
+  selectedOptions?: string[];
 }
 
 export interface UpdateCartItemInput {

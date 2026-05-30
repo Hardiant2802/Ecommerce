@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchExchangeRates } from '@/lib/services/currency';
 import type { CurrencyApiResponse } from '@/types/currency';
 
+export const runtime = 'edge';
+
 // Cache exchange rates for 1 hour (rates don't change frequently)
 const CACHE_DURATION = 60 * 60 * 1000;
 let cachedData: CurrencyApiResponse | null = null;
@@ -41,13 +43,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         ...cachedData,
         cached: true,
-        error: 'Using cached data due to API error',
+        error: 'Đang dùng dữ liệu đã lưu do lỗi API',
       });
     }
 
     return NextResponse.json(
       { 
-        error: error instanceof Error ? error.message : 'Failed to fetch exchange rates',
+        error: error instanceof Error ? error.message : 'Không thể lấy tỉ giá',
         timestamp: Date.now(),
       },
       { status: 500 }

@@ -1,10 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { formatPrice } from '@/lib/utils/formatters';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
+import { buildProductPath } from '@/lib/utils/productRouting';
 import Button from '@/components/ui/Button';
-import { useCart } from '@/lib/hooks';
+import { useCart, useAuth } from '@/lib/hooks';
+import { useToast } from '@/context/ToastContext';
 import { useState } from 'react';
 
 interface ProductCardProps {
@@ -37,55 +40,86 @@ interface ProductCardProps {
     }>;
     updated_at?: string;
     stock_status?: string;
+    categories?: Array<{
+      name?: string;
+      url_key?: string;
+      url_path?: string;
+    }>;
   };
+  currentBrand?: string;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({ product, currentBrand }: ProductCardProps) {
+  const router = useRouter();
   const { addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
+  const { showToast } = useToast();
   const [adding, setAdding] = useState(false);
 
-  const price = product.price_range.minimum_price.final_price || 
-    product.price_range.minimum_price.regular_price;
+  // Always show original price (no discount)
+  const price = product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
-  const productUrl = `/product/${product.url_key || product.sku}`;
+  const productUrl = buildProductPath(product, currentBrand);
   const inStock = product.stock_status !== 'OUT_OF_STOCK';
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!inStock) return;
-    
+
+    // Require login before purchasing
+    if (!isAuthenticated) {
+      router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
+      return;
+    }
+
     setAdding(true);
     try {
       await addToCart(product.sku, 1);
+      showToast(`Đã thêm "${product.name}" vào giỏ hàng`, 'success');
     } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
+        router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
+        return;
+      }
+
+      if (message.includes('required option') || message.includes("weren't entered")) {
+        router.push(productUrl);
+        return;
+      }
+
       console.error('Error adding to cart:', error);
-      alert('Failed to add product to cart');
+      showToast('Không thể thêm sản phẩm vào giỏ hàng', 'error');
     } finally {
       setAdding(false);
     }
   };
 
   return (
-    <Link href={productUrl} className="group">
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
-        <div className="relative aspect-square bg-gray-100">
+    <Link href={productUrl} className="group h-full">
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-lg transition-shadow h-full flex flex-col">
+        <div className="relative aspect-square bg-gray-100 flex-shrink-0">
           {/* Use regular img tag for external Magento images to avoid SSL/proxy issues */}
           <img
             src={imageUrl}
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.visibility = 'hidden';
+            }}
           />
           {!inStock && (
             <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
               <span className="bg-white px-4 py-2 rounded-md font-semibold text-gray-900">
-                Out of Stock
+                Hết hàng
               </span>
             </div>
           )}
         </div>
-        <div className="p-4">
-          <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-primary-600 transition-colors">
+        <div className="p-4 flex flex-col flex-1">
+          <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-primary-600 transition-colors flex-1">
             {product.name}
           </h3>
           <p className="text-xl font-bold text-primary-600 mb-3">
@@ -97,7 +131,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             disabled={!inStock}
             loading={adding}
           >
-            {inStock ? 'Add to Cart' : 'Out of Stock'}
+            {inStock ? 'Mua' : 'Hết hàng'}
           </Button>
         </div>
       </div>

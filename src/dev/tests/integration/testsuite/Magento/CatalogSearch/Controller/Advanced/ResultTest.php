@@ -1,7 +1,7 @@
 <?php
 /**
- * Copyright 2019 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 declare(strict_types=1);
 
@@ -171,7 +171,7 @@ class ResultTest extends AbstractController
      * @magentoAppArea frontend
      * @magentoDataFixture Magento/CatalogSearch/_files/product_for_search.php
      * @magentoDataFixture Magento/CatalogSearch/_files/full_reindex.php
-     * @dataProvider executeDataForAttributesCombination
+     * @dataProvider testDataForAttributesCombination
      *
      * @param array $searchParams
      * @param bool $isProductShown
@@ -381,7 +381,7 @@ class ResultTest extends AbstractController
      *
      * @return array
      */
-    public static function executeDataForAttributesCombination(): array
+    public static function testDataForAttributesCombination(): array
     {
         return [
             'search_product_by_name_and_price' => [
