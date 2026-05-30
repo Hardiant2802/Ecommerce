@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Chạy sau khi VPS restart hoặc docker compose up để đảm bảo Magento hoạt động đúng
+# Usage: ./bin/startup-fix
+
+set -e
+COMPOSE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$COMPOSE_DIR"
+
+echo "[startup-fix] Đợi OpenSearch khởi động..."
+for i in $(seq 1 30); do
+  STATUS=$(docker exec e-commerce-opensearch-1 curl -s -o /dev/null -w "%{http_code}" http://localhost:9200 2>/dev/null || echo "000")
+  if [ "$STATUS" = "200" ]; then
+    echo "[startup-fix] OpenSearch sẵn sàng"
+    break
+  fi
+  echo "[startup-fix] Chờ OpenSearch... ($i/30)"
+  sleep 10
+done
+
+echo "[startup-fix] Fix permissions..."
+docker compose exec -u root phpfpm chmod -R 777 /var/www/html/var/ 2>/dev/null || true
+
+echo "[startup-fix] Reindex Catalog Search..."
+docker compose exec phpfpm php bin/magento indexer:reindex catalogsearch_fulltext 2>/dev/null || true
+
+echo "[startup-fix] Flush cache..."
+docker compose exec phpfpm php bin/magento cache:flush 2>/dev/null || true
+
+echo "[startup-fix] Xong!"

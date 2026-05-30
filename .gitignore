@@ -23,7 +23,9 @@ src/generated/metadata/
 src/pub/media/catalog/
 src/pub/static/
 src/var/
+*.log
 
 # Docs & temp files
 SYSTEM_DESIGN.md
 frontend/Dockerfile.patch
+DIAGRAMS.md

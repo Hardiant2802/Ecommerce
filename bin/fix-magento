@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Fix Magento permissions, reindex và warm up cache
+set -e
+
+COMPOSE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "=== Fix Magento permissions ==="
+docker compose -f "$COMPOSE_DIR/compose.yaml" exec -u root phpfpm chmod -R 777 /var/www/html/var/
+
+echo "=== Flush cache ==="
+docker compose -f "$COMPOSE_DIR/compose.yaml" exec phpfpm php bin/magento cache:flush
+
+echo "=== Reindex ==="
+docker compose -f "$COMPOSE_DIR/compose.yaml" exec phpfpm php bin/magento indexer:reindex || true
+
+echo "=== Warm up GraphQL cache ==="
+BASE_URL="https://ahphonestore.id.vn/graphql"
+for cat_id in 55 56 57 58 59 60 61 62 63 64; do
+  curl -s -o /dev/null "$BASE_URL" \
+    -X POST -H "Content-Type: application/json" \
+    -d "{\"query\":\"{ products(filter:{category_id:{eq:\\\"$cat_id\\\"}},pageSize:12) { total_count items { id sku name url_key image { url } price_range { minimum_price { regular_price { value currency } } } stock_status } } }\"}"
+  echo "Warmed category $cat_id"
+done
+
+echo "=== Done! ==="

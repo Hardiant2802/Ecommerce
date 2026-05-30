@@ -1954,15 +1954,16 @@ export default function CheckoutPage() {
 
         <h1 className="text-2xl font-bold mb-6">Thanh toán</h1>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          <div className="flex flex-col gap-4">
+        <div className="grid md:grid-cols-2 gap-6 md:gap-8">
+          {/* Left - trên desktop: form; trên mobile: hiện sau right panel */}
+          <div className="flex flex-col gap-4 order-2 md:order-1">
 
             {/* Thông tin giao hàng */}
             {paymentMethod === 'cod' && (
             <div className="order-2 bg-white rounded-xl shadow-sm p-5 space-y-3">
               <h2 className="font-bold text-gray-900">Thông tin giao hàng</h2>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Họ tên *</label>
                   <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nguyễn Văn A"
@@ -2244,8 +2245,8 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          {/* Right */}
-          <div className="space-y-4">
+          {/* Right — hiện trước trên mobile (order-1), sau trên desktop */}
+          <div className="space-y-4 order-1 md:order-2">
             <div className="bg-white rounded-xl shadow-sm p-6 text-sm text-gray-700 space-y-3">
               {paymentMethod === 'cod' && (
                 <>

@@ -1276,7 +1276,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
           query: GET_PRODUCT_BY_URL_KEY,
           variables: { urlKey },
           cache: 'default',
-          ttlMs: 15 * 1000,
+          ttlMs: 5 * 60 * 1000,
           signal: controller.signal,
         });
 
@@ -1301,7 +1301,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
         query: GET_PRODUCT_DETAIL,
         variables: { sku: slug },
         cache: 'default',
-        ttlMs: 15 * 1000,
+        ttlMs: 5 * 60 * 1000,
         signal: controller.signal,
       });
 
@@ -1322,7 +1322,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
           pageSize: 24,
         },
         cache: 'default',
-        ttlMs: 15 * 1000,
+        ttlMs: 5 * 60 * 1000,
         signal: controller.signal,
       });
 
@@ -1348,7 +1348,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
         query: GET_PRODUCT_DETAIL,
         variables: { sku: matchedCandidate.sku },
         cache: 'default',
-        ttlMs: 15 * 1000,
+        ttlMs: 5 * 60 * 1000,
         signal: controller.signal,
       });
 
@@ -1480,7 +1480,7 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
           sort: { name: 'ASC' },
         },
         cache: 'default',
-        ttlMs: 20 * 1000,
+        ttlMs: 10 * 60 * 1000,
       });
 
       if (requestId !== similarRequestRef.current) return;
