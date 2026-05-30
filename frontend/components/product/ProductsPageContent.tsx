@@ -96,7 +96,7 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
     'phu-kien': 'Phụ kiện',
   };
 
-  const loadProducts = useCallback(async (page: number) => {
+  const loadProducts = useCallback(async (page: number, retryCount = 0) => {
     const requestId = latestRequestRef.current + 1;
     latestRequestRef.current = requestId;
     const isStale = () => requestId !== latestRequestRef.current;
@@ -176,20 +176,44 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         query: GET_PRODUCTS,
         variables,
         cache: 'default',
-        ttlMs: 10 * 1000,
+        ttlMs: 5 * 60 * 1000,
       });
 
       if (isStale()) {
         return;
       }
 
+      const totalCount = data.products.total_count || 0;
+
+      // Nếu nhận được 0 sản phẩm trong khi có category → retry tối đa 3 lần
+      // Magento/OpenSearch có thể chưa sẵn sàng sau restart
+      if (totalCount === 0 && (activeBrand || category) && retryCount < 3) {
+        const delay = (retryCount + 1) * 3000; // 3s, 6s, 9s
+        setTimeout(() => {
+          if (!isStale()) {
+            void loadProducts(page, retryCount + 1);
+          }
+        }, delay);
+        return;
+      }
+
       setProducts(data.products.items);
-      setTotalCount(data.products.total_count || 0);
+      setTotalCount(totalCount);
       setTotalPages(data.products.page_info?.total_pages || 1);
       setCurrentPage(data.products.page_info?.current_page || page);
     } catch (error) {
       console.error('Không thể tải sản phẩm:', error);
       if (isStale()) {
+        return;
+      }
+      // Retry khi gặp lỗi (network, timeout)
+      if (retryCount < 3) {
+        const delay = (retryCount + 1) * 3000;
+        setTimeout(() => {
+          if (!isStale()) {
+            void loadProducts(page, retryCount + 1);
+          }
+        }, delay);
         return;
       }
       setProducts([]);
