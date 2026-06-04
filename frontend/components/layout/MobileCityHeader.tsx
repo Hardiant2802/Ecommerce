@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Cable, Gamepad2, Headphones } from 'lucide-react';
@@ -32,7 +32,6 @@ const BRANDS = [
 export default function MobileCityHeader() {
   const { user, logout, isAuthenticated, loading: authLoading } = useAuth();
   const { itemCount } = useCart();
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,7 +65,6 @@ export default function MobileCityHeader() {
   const handleLogout = () => {
     logout();
     setUserMenuOpen(false);
-    router.refresh();
   };
 
   return (

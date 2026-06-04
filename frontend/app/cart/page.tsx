@@ -299,7 +299,9 @@ export default function CartPage() {
 
     let cancelled = false;
     const applyPendingSync = async () => {
-      const matchedItem = cart.items.find((item) => {
+      const currentItems = Array.isArray(cart.items) ? cart.items : [];
+      const matchedItem = currentItems.find((item) => {
+        if (!item?.product?.sku) return false;
         if (pending.itemId && item.id === pending.itemId) return true;
         if (pending.itemUid && item.uid === pending.itemUid) return true;
         return item.product.sku === pending.sku;
@@ -365,6 +367,12 @@ export default function CartPage() {
     setRepurchasingSku(sku);
     router.push(`/checkout?sku=${encodeURIComponent(sku)}&payment=banking&mode=single&buyAgain=1`);
   };
+
+  const codPendingOrders = useMemo(() => {
+    return purchasedOrders.filter(
+      (o) => o.paymentMethod === 'cod' && o.status === 'pending'
+    );
+  }, [purchasedOrders]);
 
   if (authLoading || !isAuthenticated) {
     return (
@@ -457,12 +465,6 @@ export default function CartPage() {
   const originalCurrency = safeCartItems[0]?.prices?.price?.currency
     ?? safeCartItems[0]?.product.price_range?.minimum_price?.regular_price?.currency
     ?? 'VND';
-
-  const codPendingOrders = useMemo(() => {
-    return purchasedOrders.filter(
-      (o) => o.paymentMethod === 'cod' && o.status === 'pending'
-    );
-  }, [purchasedOrders]);
 
   const handleConfirmDelivery = async (orderId: string) => {
     setConfirmingOrderId(orderId);

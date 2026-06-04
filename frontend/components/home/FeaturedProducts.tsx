@@ -14,7 +14,7 @@ interface FeaturedProductsProps {
 }
 
 const HOME_PHONE_CATEGORY_IDS = ['55', '56', '57', '58', '59', '60', '61', '62'];
-const HOME_FETCH_SIZE = 80;
+const HOME_FETCH_SIZE = 16;
 
 function hashString(value: string): number {
   let hash = 0;
