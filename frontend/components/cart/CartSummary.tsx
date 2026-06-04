@@ -11,7 +11,7 @@ interface CartSummaryProps {
 
 export default function CartSummary({ subtotal, total, currency, itemCount }: CartSummaryProps) {
   return (
-    <div className="bg-gray-50 rounded-lg p-4 sm:p-6 sticky top-4">
+    <div className="rounded-lg bg-gray-50 p-4 sm:p-6 md:sticky md:top-20">
       <h2 className="text-lg sm:text-xl font-bold mb-4">Tóm tắt đơn hàng</h2>
 
       <div className="space-y-3 mb-6">
@@ -27,9 +27,9 @@ export default function CartSummary({ subtotal, total, currency, itemCount }: Ca
           <span>Vận chuyển</span>
           <span className="text-green-600">MIỄN PHÍ</span>
         </div>
-        <div className="border-t pt-3 flex justify-between text-lg font-bold">
+        <div className="flex justify-between gap-3 border-t pt-3 text-lg font-bold">
           <span>Tổng tiền</span>
-          <span className="text-primary-600">{formatPrice(total, currency)}</span>
+          <span className="break-words text-right text-primary-600">{formatPrice(total, currency)}</span>
         </div>
       </div>
 

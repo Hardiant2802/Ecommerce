@@ -521,9 +521,8 @@ export default function HeroVideo() {
   }, []);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[400px]">
-      {/* Cột Trái: Banner */}
-      <div className="w-full lg:w-[65%] h-[200px] sm:h-[300px] lg:h-full rounded-xl overflow-hidden shadow-sm bg-gray-100">
+    <div className="flex h-auto flex-col gap-4 lg:h-[420px] lg:flex-row">
+      <div className="h-[190px] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm min-[420px]:h-[230px] sm:h-[320px] lg:h-full lg:w-[65%]">
         <div
           className="relative w-full h-full touch-pan-y"
           onTouchStart={handleBannerTouchStart}
@@ -613,7 +612,7 @@ export default function HeroVideo() {
             />
           ) : (
             !isLibraryLoading && (
-              <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-gray-600">
+              <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-slate-600">
                 {libraryError || 'Không có video YouTube để hiển thị'}
               </div>
             )
@@ -621,9 +620,8 @@ export default function HeroVideo() {
         </div>
       </div>
 
-      {/* Cột Phải: Video Area */}
       <div className="w-full lg:w-[35%] flex flex-col gap-2 h-[400px] lg:h-full">
-        <div className="flex-1 rounded-xl overflow-hidden relative shadow-sm bg-black border border-gray-100">
+        <div className="flex-1 rounded-lg overflow-hidden relative shadow-sm bg-black border border-slate-200">
           {selectedVideo && (isLibraryLoading || isPlayerLoading) && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/65 text-white">
               <div className="flex items-center gap-2 text-sm font-medium">
@@ -656,7 +654,7 @@ export default function HeroVideo() {
             ? Array.from({ length: 5 }).map((_, index) => (
               <div
                 key={`hero-thumb-skeleton-${index}`}
-                className="relative flex-none w-[118px] sm:w-[130px] rounded-lg overflow-hidden border border-white/20 bg-gray-900/55 animate-pulse snap-start"
+                className="relative flex-none w-[118px] sm:w-[130px] rounded-md overflow-hidden border border-slate-200 bg-slate-200 animate-pulse snap-start"
               >
                 <div className="absolute inset-0 flex items-center justify-center text-white/80">
                   <span className="inline-block h-4 w-4 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
@@ -670,8 +668,8 @@ export default function HeroVideo() {
                   setIsPlayerLoading(true);
                   setSelectedVideoId(video.id);
                 }}
-                className={`relative flex-none w-[118px] sm:w-[130px] rounded-lg overflow-hidden cursor-pointer group border-2 transition-all snap-start 
-                  ${highlightedVideoId === video.id ? 'border-amber-500' : 'border-transparent'}`}
+                className={`relative flex-none w-[118px] sm:w-[130px] rounded-md overflow-hidden cursor-pointer group border-2 transition-all snap-start bg-slate-100
+                  ${highlightedVideoId === video.id ? 'border-primary-500 shadow-sm' : 'border-transparent hover:border-slate-300'}`}
               >
                 {thumbnailLoading[video.id] && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/45 text-white">

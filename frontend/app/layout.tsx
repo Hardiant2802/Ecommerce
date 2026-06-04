@@ -40,7 +40,7 @@ export default function RootLayout({
               <Suspense fallback={null}>
                 <MobileCityHeader />
               </Suspense>
-              <main className="flex-grow bg-gray-50">
+              <main className="flex-grow bg-slate-50">
                 {children}
               </main>
               <Footer />

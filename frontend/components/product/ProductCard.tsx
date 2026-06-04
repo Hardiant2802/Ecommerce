@@ -56,8 +56,9 @@ export default function ProductCard({ product, currentBrand }: ProductCardProps)
   const { showToast } = useToast();
   const [adding, setAdding] = useState(false);
 
-  // Always show original price (no discount)
-  const price = product.price_range.minimum_price.regular_price;
+  const price =
+    product.price_range.minimum_price.final_price ||
+    product.price_range.minimum_price.regular_price;
   
   const imageUrl = getPrimaryProductImageUrl(product);
   const productUrl = buildProductPath(product, currentBrand);
@@ -98,38 +99,39 @@ export default function ProductCard({ product, currentBrand }: ProductCardProps)
 
   return (
     <Link href={productUrl} className="group h-full">
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-lg transition-shadow h-full flex flex-col">
-        <div className="relative aspect-square bg-gray-100 flex-shrink-0">
-          {/* Use regular img tag for external Magento images to avoid SSL/proxy issues */}
+      <div className="h-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg flex flex-col">
+        <div className="relative aspect-square flex-shrink-0 bg-slate-50 p-3 sm:p-4">
           <img
             src={imageUrl}
             alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+            className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
             onError={(event) => {
               event.currentTarget.style.visibility = 'hidden';
             }}
           />
           {!inStock && (
-            <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-              <span className="bg-white px-4 py-2 rounded-md font-semibold text-gray-900">
+            <div className="absolute inset-0 bg-primary-800/55 flex items-center justify-center">
+              <span className="bg-white px-4 py-2 rounded-md font-semibold text-slate-900 shadow-sm">
                 Hết hàng
               </span>
             </div>
           )}
         </div>
-        <div className="p-4 flex flex-col flex-1">
-          <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-primary-600 transition-colors flex-1">
+        <div className="flex flex-1 flex-col p-3 sm:p-4">
+          <h3 className="mb-2 min-h-[2.75rem] text-sm font-semibold leading-snug text-slate-900 line-clamp-2 transition-colors group-hover:text-primary-700 sm:min-h-[3rem] sm:text-base">
             {product.name}
           </h3>
-          <p className="text-xl font-bold text-primary-600 mb-3">
+          <p className="mb-3 break-words text-base font-bold text-rose-600 sm:text-lg">
             {formatPrice(price.value, price.currency)}
           </p>
           <Button
             fullWidth
+            size="sm"
             onClick={handleAddToCart}
             disabled={!inStock}
             loading={adding}
+            className="mt-auto"
           >
             {inStock ? 'Mua' : 'Hết hàng'}
           </Button>
