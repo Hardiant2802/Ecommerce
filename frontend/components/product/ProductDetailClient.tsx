@@ -1095,10 +1095,19 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 }
 
+// Kiểm tra văn bản có dấu tiếng Việt không (để loại bỏ mô tả không dấu trong DB)
+function hasVietnameseDiacritics(text: string): boolean {
+  return /[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ]/.test(text);
+}
+
 function isDescriptionMatchingProduct(productName: string, descriptionText: string): boolean {
   const normalizedName = productName.toLowerCase();
   const normalizedDesc = descriptionText.toLowerCase();
   if (!normalizedDesc) return false;
+
+  // Mô tả phải có dấu tiếng Việt, nếu không thì dùng mô tả tự generate (có dấu) cho nhất quán
+  if (!hasVietnameseDiacritics(descriptionText)) return false;
+
   if (normalizedDesc.includes(normalizedName)) return true;
   
   const requiredTokens = normalizedName.split(/\s+/).map(t => t.replace(/[^a-z0-9]/g, '')).filter(t => t.length >= 2 || /\d/.test(t));
@@ -1124,7 +1133,6 @@ function buildAccurateFullDescription(product: Product, displayPrice: string, in
   return `<p><strong>${product.name}</strong> thuộc danh mục ${categoryName}, là điện thoại ${brand} tiêu chuẩn.</p>
 <ul>
   <li><strong>Tên sản phẩm:</strong> ${product.name}</li>
-  <li><strong>Mã SKU:</strong> ${product.sku}</li>
   <li><strong>Giá bán:</strong> ${displayPrice}</li>
   <li><strong>Trạng thái:</strong> ${inStock ? 'Còn hàng' : 'Hết hàng'}</li>
   <li><strong>Cập nhật lúc:</strong> ${updatedAt}</li>
@@ -1642,8 +1650,6 @@ export default function ProductDetailClient({ slug, brand: requestedBrand }: Pro
                   <span className={`w-2 h-2 rounded-full ${inStock ? 'bg-green-500' : 'bg-red-500'}`} />
                   {inStock ? 'Còn hàng' : 'Hết hàng'}
                 </span>
-                <span className="text-gray-300">|</span>
-                <span className="text-sm text-gray-500">SKU: {product.sku}</span>
               </div>
 
               {/* Price */}

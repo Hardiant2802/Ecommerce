@@ -44,12 +44,6 @@ export const GET_PRODUCTS = `
           url
           label
         }
-        media_gallery {
-          url
-          label
-          position
-          disabled
-        }
       }
       page_info {
         current_page

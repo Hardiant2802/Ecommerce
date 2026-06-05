@@ -305,6 +305,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const queuedQuantitiesRef = useRef<Map<number, number>>(new Map());
   const quantityRequestVersionRef = useRef<Map<number, number>>(new Map());
   const cartReadRequestVersionRef = useRef(0);
+  const previousAuthTokenRef = useRef<string | null>(authToken);
 
   // Keep cart in sync with auth state changes (login/logout) without requiring page reload.
   useEffect(() => {
@@ -317,9 +318,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       // Nếu đã đăng nhập -> dùng customerCart (gắn với tài khoản, không cần cart ID)
       if (authToken) {
+        previousAuthTokenRef.current = authToken;
         await loadCustomerCart(authToken);
         setLoading(false);
         return;
+      }
+
+      const justLoggedOut = Boolean(previousAuthTokenRef.current);
+      previousAuthTokenRef.current = null;
+
+      if (justLoggedOut) {
+        cartReadRequestVersionRef.current += 1;
+        updateLocksRef.current.clear();
+        queuedQuantitiesRef.current.clear();
+        quantityRequestVersionRef.current.clear();
+        storage.removeCartId();
+        setCart(null);
+        setCartId(null);
       }
 
       // Khách vãng lai -> dùng guest cart ID từ localStorage
@@ -374,8 +389,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         ));
       }
       setCartId(customerCart.id);
-      // Sync cart ID vào localStorage để dùng cho các mutation
-      storage.setCartId(customerCart.id);
       return customerCart.id;
     } catch (error) {
       console.error('Failed to load customer cart:', error);

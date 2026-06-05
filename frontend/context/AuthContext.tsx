@@ -173,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     storage.removeAuthToken();
     storage.removeAuthUser();
+    window.location.assign('/');
   };
 
   const value: AuthContextType = {

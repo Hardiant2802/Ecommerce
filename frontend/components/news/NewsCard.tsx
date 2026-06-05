@@ -14,12 +14,12 @@ export default function NewsCard({ article, className = '' }: NewsCardProps) {
       href={article.link}
       target="_blank"
       rel="noopener noreferrer"
-      className={`block bg-white rounded-lg border border-gray-200 hover:border-primary-300 hover:shadow-md transition-all duration-200 overflow-hidden ${className}`}
+      className={`block bg-white rounded-lg border border-slate-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg transition-all duration-200 overflow-hidden ${className}`}
     >
-      <div className="flex gap-4 p-4">
+      <div className="flex flex-col gap-3 p-3 min-[460px]:flex-row min-[460px]:gap-4 sm:p-4">
         {/* Thumbnail */}
         {article.thumbnail && (
-          <div className="flex-shrink-0 w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-gray-100">
+          <div className="h-40 w-full flex-shrink-0 overflow-hidden rounded-md bg-slate-100 min-[460px]:h-24 min-[460px]:w-24 sm:h-32 sm:w-32">
             <img
               src={article.thumbnail}
               alt={article.title}
@@ -33,17 +33,17 @@ export default function NewsCard({ article, className = '' }: NewsCardProps) {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-900 text-sm sm:text-base line-clamp-2 mb-2 hover:text-primary-600 transition-colors">
+          <h3 className="font-semibold text-slate-900 text-sm sm:text-base line-clamp-2 mb-2 hover:text-primary-700 transition-colors">
             {article.title}
           </h3>
           
-          <p className="text-xs sm:text-sm text-gray-600 line-clamp-2 mb-2">
+          <p className="text-xs sm:text-sm text-slate-600 line-clamp-2 mb-2">
             {article.description}
           </p>
 
-          <div className="flex items-center gap-3 text-xs text-gray-500">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:gap-3">
             {article.category && (
-              <span className="inline-flex items-center px-2 py-1 bg-primary-50 text-primary-700 rounded">
+              <span className="inline-flex items-center px-2 py-1 bg-primary-50 text-primary-800 rounded">
                 {article.category}
               </span>
             )}

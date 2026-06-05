@@ -15,6 +15,27 @@ export const GET_CUSTOMER = `
       email
       firstname
       lastname
+      date_of_birth
+      gender
+      is_subscribed
+      created_at
+      orders(pageSize: 5) {
+        items {
+          id
+          number
+          order_date
+          status
+          total {
+            grand_total { value currency }
+          }
+          items {
+            product_name
+            product_sku
+            quantity_ordered
+            product_sale_price { value currency }
+          }
+        }
+      }
     }
   }
 `;

@@ -110,9 +110,9 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
   };
 
   return (
-    <div className="flex gap-3 py-4 border-b">
+    <div className="flex gap-3 border-b py-4 max-[380px]:flex-col">
       {/* Ảnh sản phẩm */}
-      <div className="relative w-20 h-20 sm:w-24 sm:h-24 bg-gray-100 rounded-md overflow-hidden flex-shrink-0">
+      <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-md bg-gray-100 sm:h-24 sm:w-24 max-[380px]:h-36 max-[380px]:w-full">
         <img
           src={imageUrl}
           alt={item.product.name}
@@ -125,12 +125,12 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
 
       {/* Thông tin sản phẩm */}
       <div className="flex-1 min-w-0">
-        <div className="flex justify-between items-start gap-2">
-          <h3 className="font-semibold text-gray-900 text-sm sm:text-base leading-tight">
+        <div className="flex flex-col gap-1 min-[460px]:flex-row min-[460px]:items-start min-[460px]:justify-between min-[460px]:gap-2">
+          <h3 className="text-sm font-semibold leading-tight text-gray-900 sm:text-base">
             {item.product.name}
           </h3>
           {/* Giá tổng — hiện bên phải trên mobile */}
-          <p className="font-bold text-base sm:text-lg flex-shrink-0 text-gray-900">
+          <p className="flex-shrink-0 break-words text-base font-bold text-gray-900 sm:text-lg">
             {formatPrice(displayRowTotal, displayCurrency)}
           </p>
         </div>
@@ -145,7 +145,7 @@ export default function CartItem({ item, onUpdateQuantity, onRemove, onCheckout,
         </p>
 
         {/* Actions */}
-        <div className="flex flex-wrap items-center gap-2 mt-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="flex items-center border border-gray-300 rounded-md">
             <button
               onClick={handleDecrease}

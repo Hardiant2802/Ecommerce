@@ -253,24 +253,24 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
         : 'Tất cả sản phẩm';
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-slate-50 py-6 md:py-10">
       <div className="container-custom">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-4">
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:mb-8 md:p-6">
+          <h1 className="mb-4 break-words text-2xl font-bold text-slate-900 md:text-4xl">
             {categoryName}
           </h1>
 
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <p className="text-gray-600">
+          <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+            <p className="text-sm text-slate-600">
               {loading ? 'Đang tải...' : `${totalCount} sản phẩm`}
             </p>
 
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Sắp xếp theo:</label>
+            <div className="flex w-full flex-col gap-1.5 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+              <label className="text-sm font-medium text-slate-600">Sắp xếp theo:</label>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 sm:w-auto"
               >
                 {SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -285,23 +285,23 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
           <ProductGrid products={products} loading={loading} currentBrand={activeBrand || undefined} />
 
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-3 mt-8">
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
-              className="px-4 py-2 rounded-md border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              className="px-4 py-2 rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
             >
               Trước
             </button>
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-slate-700">
               Trang {currentPage} / {totalPages}
             </span>
             <button
               type="button"
               onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
               disabled={currentPage === totalPages}
-              className="px-4 py-2 rounded-md border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              className="px-4 py-2 rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
             >
               Sau
             </button>
@@ -310,10 +310,10 @@ export default function ProductsPageContent({ forcedBrand }: ProductsPageContent
 
         {!loading && products.length === 0 && (
           <div className="text-center py-20">
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            <h3 className="text-xl font-semibold text-slate-900 mb-2">
               Không tìm thấy sản phẩm
             </h3>
-            <p className="text-gray-600 mb-8">
+            <p className="text-slate-600 mb-8">
               Thử đổi từ khóa hoặc bộ lọc và tìm lại
             </p>
           </div>

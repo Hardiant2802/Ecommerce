@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useCart, useAuth } from '@/lib/hooks';
@@ -413,18 +413,25 @@ export default function CheckoutPage() {
 
   const cartItems = cart?.items || [];
   const isEmpty = cartItems.length === 0;
-  const checkoutItemsById = itemId
-    ? cartItems.filter((item) => item.id === itemId || item.uid === itemId)
-    : [];
-  const checkoutItems = itemId
-    ? (checkoutItemsById.length > 0
-      ? checkoutItemsById
+
+  // Memoize checkoutItems để tránh new array reference mỗi render
+  // gây ra vòng lặp vô hạn: checkoutItems mới → buildItemsPayload mới → createBankingOrder mới → useEffect chạy lại
+  const checkoutItems = useMemo(() => {
+    const checkoutItemsById = itemId
+      ? cartItems.filter((item) => item.id === itemId || item.uid === itemId)
+      : [];
+    return itemId
+      ? (checkoutItemsById.length > 0
+        ? checkoutItemsById
+        : sku
+          ? cartItems.filter((item) => item.product.sku === sku)
+          : [])
       : sku
         ? cartItems.filter((item) => item.product.sku === sku)
-        : [])
-    : sku
-      ? cartItems.filter((item) => item.product.sku === sku)
-      : cartItems;
+        : cartItems;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart?.items, itemId, sku]);
+
   const singleCheckoutTargetItem = isSingleProductCheckout && checkoutItems.length > 0 ? checkoutItems[0] : null;
   const allowTotalForSingleItem = Boolean(singleCheckoutTargetItem && singleCheckoutTargetItem.quantity > 1);
 
@@ -1179,7 +1186,7 @@ export default function CheckoutPage() {
       creatingBankingOrderRef.current = false;
       setCreatingBankingOrder(false);
     }
-  }, [buildItemsPayload, checkoutFingerprint, currency, grandTotal, internalOrder, isScopeStale, orderNote, user?.email]);
+  }, [buildItemsPayload, checkoutFingerprint, currency, grandTotal, isScopeStale, orderNote, user?.email]);
 
   const createCodOrder = useCallback(async (): Promise<InternalOrderSummary | null> => {
     try {
@@ -1585,7 +1592,7 @@ export default function CheckoutPage() {
     void poll();
     const timer = setInterval(() => {
       void poll();
-    }, 4000);
+    }, 3000);
 
     return () => {
       cancelled = true;
@@ -1774,14 +1781,14 @@ export default function CheckoutPage() {
       return (
         <div className="min-h-screen bg-gray-50 py-8">
           <div className="container-custom">
-            <div className="max-w-lg mx-auto bg-white rounded-xl shadow-sm p-8 text-center">
+            <div className="mx-auto max-w-lg rounded-xl bg-white p-5 text-center shadow-sm sm:p-8">
               <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-blue-100">
                 <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Thanh toán thành công!</h2>
-              <p className="text-gray-600 mb-1">Mã đơn hàng: <strong className="text-primary-700">{searchParams.get('vnp_TxnRef') || orderId}</strong></p>
+              <p className="mb-1 break-words text-gray-600">Mã đơn hàng: <strong className="text-primary-700">{searchParams.get('vnp_TxnRef') || orderId}</strong></p>
               <p className="text-gray-600 mb-1 text-sm">Phương thức: <strong>VNPAY</strong></p>
               <p className="text-gray-600 mb-1 text-sm">Ngân hàng: <strong>{searchParams.get('vnp_BankCode') || ''}</strong></p>
               <p className="text-gray-600 mb-4 text-sm">Số tiền: <strong className="text-blue-700">{formatPrice(Math.round(Number(searchParams.get('vnp_Amount') || 0) / 100), 'VND')}</strong></p>
@@ -1809,7 +1816,7 @@ export default function CheckoutPage() {
       <div className="min-h-screen bg-gray-50 py-8">
         {paidNoticeNode}
         <div className="container-custom">
-          <div className="max-w-lg mx-auto bg-white rounded-xl shadow-sm p-8 text-center">
+            <div className="mx-auto max-w-lg rounded-xl bg-white p-5 text-center shadow-sm sm:p-8">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${bankingPending ? 'bg-amber-100' : 'bg-green-100'}`}>
               {bankingPending ? (
                 <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1824,21 +1831,21 @@ export default function CheckoutPage() {
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               {bankingPending ? 'Đơn hàng đã tạo, chờ chuyển khoản' : 'Đặt hàng thành công!'}
             </h2>
-            <p className="text-gray-600 mb-1">Mã đơn hàng: <strong className="text-primary-700">{activeOrderId}</strong></p>
+            <p className="mb-1 break-words text-gray-600">Mã đơn hàng: <strong className="text-primary-700">{activeOrderId}</strong></p>
             {shippingOrderCode && (
-              <p className="text-gray-600 mb-1 text-sm">
+              <p className="mb-1 break-words text-sm text-gray-600">
                 Mã vận đơn {shippingCarrier === 'ghn' ? 'GHN' : 'Viettel Post'}: <strong className="text-blue-600">{shippingOrderCode}</strong>
               </p>
             )}
             {requiresShippingInfo && (
-              <p className="text-gray-600 mb-1 text-sm">
+              <p className="mb-1 text-sm text-gray-600">
                 Giao đến: <strong>{fullName}</strong> — {address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}
               </p>
             )}
             <p className="text-gray-600 mb-4 text-sm">Phương thức: {paymentMethodLabel[paymentMethod]}</p>
 
             {paymentMethod === 'banking' && (
-              <div className="text-left border border-gray-200 rounded-lg p-4 mb-6 text-sm space-y-3">
+              <div className="mb-6 space-y-3 rounded-lg border border-gray-200 p-3 text-left text-sm sm:p-4">
                 <div className={`rounded-lg px-3 py-2 text-xs ${isBankingPaid ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
                   {isBankingPaid
                     ? (internalOrder?.paymentStatusMessage || 'Hệ thống đã xác nhận giao dịch SePay.')
@@ -1850,19 +1857,19 @@ export default function CheckoutPage() {
                     <img
                       src={bankingQrUrl}
                       alt="QR chuyển khoản SePay"
-                      className="w-56 h-56 object-contain rounded-lg border border-emerald-200 bg-white p-2"
+                      className="h-auto w-full max-w-56 rounded-lg border border-emerald-200 bg-white p-2 object-contain"
                     />
                   </div>
                 )}
 
-                <div className="flex justify-between gap-2">
+                <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:justify-between min-[420px]:gap-2">
                   <span className="text-gray-500">Ngân hàng</span>
-                  <span className="font-semibold text-gray-900">{resolvedBankName}</span>
+                  <span className="break-words font-semibold text-gray-900 min-[420px]:text-right">{resolvedBankName}</span>
                 </div>
-                <div className="flex justify-between gap-2 items-center">
+                <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-2">
                   <span className="text-gray-500">Số tài khoản</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-gray-900">{resolvedBankAccountNo || 'Chưa cấu hình'}</span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 min-[420px]:justify-end">
+                    <span className="break-all font-semibold text-gray-900">{resolvedBankAccountNo || 'Chưa cấu hình'}</span>
                     {resolvedBankAccountNo && (
                       <button
                         type="button"
@@ -1874,14 +1881,14 @@ export default function CheckoutPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex justify-between gap-2">
+                <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:justify-between min-[420px]:gap-2">
                   <span className="text-gray-500">Chủ tài khoản</span>
-                  <span className="font-semibold text-gray-900">{resolvedBankAccountName || 'Chưa cấu hình'}</span>
+                  <span className="break-words font-semibold text-gray-900 min-[420px]:text-right">{resolvedBankAccountName || 'Chưa cấu hình'}</span>
                 </div>
-                <div className="flex justify-between gap-2 items-center">
+                <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-2">
                   <span className="text-gray-500">Nội dung CK</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-gray-900">{transferContent || 'Đang tạo mã'}</span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 min-[420px]:justify-end">
+                    <span className="break-all font-semibold text-gray-900">{transferContent || 'Đang tạo mã'}</span>
                     {transferContent && (
                       <button
                         type="button"
@@ -1895,7 +1902,7 @@ export default function CheckoutPage() {
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-500">Số tiền</span>
-                  <span className="font-semibold text-primary-700">{formatPrice(qrAmount, internalOrder?.currency || currency)}</span>
+                  <span className="break-words text-right font-semibold text-primary-700">{formatPrice(qrAmount, internalOrder?.currency || currency)}</span>
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-500">Đã nhận</span>
@@ -1915,14 +1922,20 @@ export default function CheckoutPage() {
                 )}
 
                 {!isBankingPaid && (
-                  <button
-                    type="button"
-                    onClick={() => internalOrder?.id ? void checkPaymentStatus(internalOrder.id) : undefined}
-                    disabled={checkingPayment}
-                    className="w-full mt-2 bg-emerald-600 text-white font-semibold py-2 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                  >
-                    {checkingPayment ? 'Đang kiểm tra giao dịch...' : 'Thanh toán đã hoàn tất'}
-                  </button>
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center justify-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-2">
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-600" />
+                      Hệ thống đang tự động kiểm tra thanh toán...
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => internalOrder?.id ? void checkPaymentStatus(internalOrder.id) : undefined}
+                      disabled={checkingPayment}
+                      className="w-full text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-60"
+                    >
+                      {checkingPayment ? 'Đang kiểm tra...' : 'Kiểm tra ngay'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -1941,10 +1954,10 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-gray-50 py-6 md:py-8">
       {paidNoticeNode}
       <div className="container-custom">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+        <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-gray-500 md:mb-6">
           <Link href="/" className="hover:text-primary-600">Trang chủ</Link>
           <span>/</span>
           <Link href="/cart" className="hover:text-primary-600">Giỏ hàng</Link>
@@ -1952,15 +1965,15 @@ export default function CheckoutPage() {
           <span className="text-gray-900 font-medium">Thanh toán</span>
         </div>
 
-        <h1 className="text-2xl font-bold mb-6">Thanh toán</h1>
+        <h1 className="mb-5 text-2xl font-bold md:mb-6">Thanh toán</h1>
 
-        <div className="grid md:grid-cols-2 gap-6 md:gap-8">
+        <div className="grid gap-5 md:grid-cols-2 md:gap-8">
           {/* Left - trên desktop: form; trên mobile: hiện sau right panel */}
           <div className="flex flex-col gap-4 order-2 md:order-1">
 
             {/* Thông tin giao hàng */}
             {paymentMethod === 'cod' && (
-            <div className="order-2 bg-white rounded-xl shadow-sm p-5 space-y-3">
+            <div className="order-2 space-y-3 rounded-xl bg-white p-4 shadow-sm sm:p-5">
               <h2 className="font-bold text-gray-900">Thông tin giao hàng</h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1985,14 +1998,14 @@ export default function CheckoutPage() {
               {/* Chọn đơn vị vận chuyển */}
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-2">Đơn vị vận chuyển *</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
                   <button type="button" onClick={() => setShippingCarrier('ghn')}
-                    className={`border rounded-lg px-3 py-2 text-sm font-medium transition-colors ${shippingCarrier === 'ghn' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                    🚚 GHN Express
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${shippingCarrier === 'ghn' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                    GHN Express
                   </button>
                   <button type="button" onClick={() => setShippingCarrier('vtp')}
-                    className={`border rounded-lg px-3 py-2 text-sm font-medium transition-colors ${shippingCarrier === 'vtp' ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                    📦 Viettel Post
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${shippingCarrier === 'vtp' ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                    Viettel Post
                   </button>
                 </div>
               </div>
@@ -2066,7 +2079,7 @@ export default function CheckoutPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className={`font-medium ${shippingCarrier === 'ghn' ? 'text-blue-700' : 'text-red-700'}`}>
-                          {shippingCarrier === 'ghn' ? '🚚 GHN Express' : '📦 Viettel Post'}
+                          {shippingCarrier === 'ghn' ? 'GHN Express' : 'Viettel Post'}
                         </p>
                         <p className="text-xs text-gray-500">{shippingCarrier === 'ghn' ? 'Giao hàng 1-3 ngày' : 'Giao hàng 2-4 ngày'}</p>
                       </div>
@@ -2082,7 +2095,7 @@ export default function CheckoutPage() {
 
             {/* Đơn hàng */}
             <div className="order-1 bg-white rounded-xl shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100">
+              <div className="border-b border-gray-100 px-4 py-4 sm:px-5">
                 <h2 className="font-bold text-gray-900">Đơn hàng của bạn</h2>
                 {allowTotalForSingleItem && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2120,7 +2133,7 @@ export default function CheckoutPage() {
                   const selectedOptionLines = resolveCheckoutSelectedOptionLines(item);
                   const lineCurrency = item.prices?.price?.currency || item.prices?.row_total?.currency || currency;
                   return (
-                    <div key={item.id} className="flex items-center gap-4 px-5 py-4">
+                    <div key={item.id} className="flex items-start gap-3 px-4 py-4 sm:items-center sm:gap-4 sm:px-5">
                       <div className="w-14 h-14 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden">
                         {item.product.thumbnail?.url ? (
                           <img
@@ -2138,20 +2151,20 @@ export default function CheckoutPage() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 text-sm truncate">{item.product.name}</p>
+                        <p className="text-sm font-medium text-gray-900 line-clamp-2 sm:truncate">{item.product.name}</p>
                         {selectedOptionLines.map((line) => (
                           <p key={`${item.id}-${line}`} className="text-xs text-gray-500 truncate">{line}</p>
                         ))}
                         <p className="text-xs text-gray-500">x{quantity} • {formatPrice(unitPrice, lineCurrency)} / sản phẩm</p>
                       </div>
-                      <span className="font-semibold text-sm text-gray-900 flex-shrink-0">
+                      <span className="hidden flex-shrink-0 text-right text-sm font-semibold text-gray-900 min-[420px]:block">
                         {formatPrice(unitPrice * quantity, lineCurrency)}
                       </span>
                     </div>
                   );
                 })}
               </div>
-              <div className="px-5 py-4 bg-gray-50 space-y-2">
+              <div className="space-y-2 bg-gray-50 px-4 py-4 sm:px-5">
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Tạm tính</span><span>{formattedTotal}</span>
                 </div>
@@ -2163,15 +2176,15 @@ export default function CheckoutPage() {
                       : <span className="text-gray-400">Chưa tính</span>}
                   </div>
                 )}
-                <div className="flex justify-between font-bold text-gray-900 text-lg border-t border-gray-200 pt-2">
+                <div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-lg font-bold text-gray-900">
                   <span>Tổng cộng</span>
-                  <span className="text-primary-600">{formattedGrandTotal}</span>
+                  <span className="break-words text-right text-primary-600">{formattedGrandTotal}</span>
                 </div>
               </div>
             </div>
 
             {/* Ghi chú */}
-            <div className="order-3 bg-white rounded-xl shadow-sm p-5">
+            <div className="order-3 rounded-xl bg-white p-4 shadow-sm sm:p-5">
               <label className="block text-sm font-medium text-gray-700 mb-2">Ghi chú đơn hàng (tuỳ chọn)</label>
               <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)}
                 placeholder="Màu sắc, phiên bản, yêu cầu giao hàng..." rows={3}
@@ -2179,7 +2192,7 @@ export default function CheckoutPage() {
             </div>
 
             {/* Thanh toán */}
-            <div className="order-4 bg-white rounded-xl shadow-sm p-5 space-y-3">
+            <div className="order-4 space-y-3 rounded-xl bg-white p-4 shadow-sm sm:p-5">
               <h2 className="font-bold text-gray-900">Phương thức thanh toán</h2>
               <div className="space-y-3">
                 {(['cod', 'banking', 'vnpay'] as PaymentMethod[]).map(method => (
@@ -2192,7 +2205,7 @@ export default function CheckoutPage() {
                     {method === 'cod' && <><p className="text-sm font-medium text-gray-900">Thanh toán khi nhận hàng (COD)</p><p className="text-xs text-gray-600 mt-1">Thanh toán tiền mặt khi nhận hàng.</p></>}
                     {method === 'banking' && (
                       <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                           <p className="text-sm font-medium text-gray-900">Chuyển khoản ngân hàng</p>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">QR sẵn sàng</span>
                         </div>
@@ -2200,7 +2213,7 @@ export default function CheckoutPage() {
                       </div>
                     )}
                     {method === 'vnpay' && (
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                         <div className="flex items-center gap-2">
                           <svg className="w-5 h-5 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
@@ -2246,8 +2259,8 @@ export default function CheckoutPage() {
           </div>
 
           {/* Right — hiện trước trên mobile (order-1), sau trên desktop */}
-          <div className="space-y-4 order-1 md:order-2">
-            <div className="bg-white rounded-xl shadow-sm p-6 text-sm text-gray-700 space-y-3">
+          <div className="order-1 space-y-4 md:order-2">
+            <div className="space-y-3 rounded-xl bg-white p-4 text-sm text-gray-700 shadow-sm sm:p-6">
               {paymentMethod === 'cod' && (
                 <>
                   <h3 className="font-bold text-gray-900">{paymentMethodLabel[paymentMethod]}</h3>
@@ -2264,7 +2277,7 @@ export default function CheckoutPage() {
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-left space-y-2">
                     <p className="text-sm font-semibold text-blue-800">Số tiền: {formattedGrandTotal}</p>
-                    <p className="text-xs text-gray-600">Mã đơn: <strong>{orderId}</strong></p>
+                    <p className="break-words text-xs text-gray-600">Mã đơn: <strong>{orderId}</strong></p>
                     <p className="text-xs text-gray-500">Bấm <strong>Xác nhận đặt hàng</strong> để chuyển sang trang thanh toán VNPAY. Hỗ trợ ATM nội địa, Visa/Mastercard, QR Pay.</p>
                   </div>
                   {vnpayError && (
@@ -2294,7 +2307,7 @@ export default function CheckoutPage() {
                           <img
                             src={bankingQrUrl}
                             alt="QR chuyển khoản ngân hàng"
-                            className="w-full max-w-[360px] mx-auto object-contain rounded-lg border border-emerald-200 bg-white p-2"
+                            className="mx-auto w-full max-w-[320px] rounded-lg border border-emerald-200 bg-white p-2 object-contain sm:max-w-[360px]"
                           />
                         ) : (
                           <div className="text-xs text-gray-500 text-center py-8">Chưa có mã QR thanh toán</div>
@@ -2302,14 +2315,14 @@ export default function CheckoutPage() {
                       </div>
 
                       <div className="space-y-2 text-xs">
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                           <span className="text-gray-500">Ngân hàng</span>
-                          <span className="font-semibold text-gray-900">{resolvedBankName || 'Chưa cấu hình'}</span>
+                          <span className="break-words font-semibold text-gray-900 min-[420px]:text-right">{resolvedBankName || 'Chưa cấu hình'}</span>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                           <span className="text-gray-500">Số tài khoản</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-gray-900">{resolvedBankAccountNo || 'Chưa cấu hình'}</span>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2 min-[420px]:justify-end">
+                            <span className="break-all font-semibold text-gray-900">{resolvedBankAccountNo || 'Chưa cấu hình'}</span>
                             {resolvedBankAccountNo && (
                               <button
                                 type="button"
@@ -2321,18 +2334,18 @@ export default function CheckoutPage() {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                           <span className="text-gray-500">Chủ tài khoản</span>
-                          <span className="font-semibold text-gray-900">{resolvedBankAccountName || 'Chưa cấu hình'}</span>
+                          <span className="break-words font-semibold text-gray-900 min-[420px]:text-right">{resolvedBankAccountName || 'Chưa cấu hình'}</span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-gray-500">Số tiền</span>
-                          <span className="font-semibold text-primary-700">{formatPrice(qrAmount, internalOrder.currency || currency)}</span>
+                          <span className="break-words text-right font-semibold text-primary-700">{formatPrice(qrAmount, internalOrder.currency || currency)}</span>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-1 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                           <span className="text-gray-500">Nội dung CK</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-gray-900">{transferContent || 'Đang tạo mã'}</span>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2 min-[420px]:justify-end">
+                            <span className="break-all font-semibold text-gray-900">{transferContent || 'Đang tạo mã'}</span>
                             {transferContent && (
                               <button
                                 type="button"
@@ -2352,14 +2365,20 @@ export default function CheckoutPage() {
                         </div>
 
                         {internalOrder.status !== 'paid' && (
-                          <button
-                            type="button"
-                            onClick={() => void checkPaymentStatus(internalOrder.id)}
-                            disabled={checkingPayment}
-                            className="w-full mt-2 bg-emerald-600 text-white font-semibold py-2 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                          >
-                            {checkingPayment ? 'Đang kiểm tra giao dịch...' : 'Thanh toán đã hoàn tất'}
-                          </button>
+                          <div className="mt-2 space-y-2">
+                            <div className="flex items-center justify-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-2">
+                              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-600" />
+                              Hệ thống đang tự động kiểm tra thanh toán...
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void checkPaymentStatus(internalOrder.id)}
+                              disabled={checkingPayment}
+                              className="w-full text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-60"
+                            >
+                              {checkingPayment ? 'Đang kiểm tra...' : 'Kiểm tra ngay'}
+                            </button>
+                          </div>
                         )}
 
                         {internalOrder.paymentStatusMessage && (
@@ -2375,7 +2394,7 @@ export default function CheckoutPage() {
 
               {isAddressComplete && paymentMethod === 'cod' && (
                 <div className="bg-gray-50 rounded-lg p-3 space-y-1 border border-gray-200">
-                  <p className="text-xs font-semibold text-gray-700">📦 Giao đến:</p>
+                  <p className="text-xs font-semibold text-gray-700">Giao đến:</p>
                   <p className="text-xs text-gray-600">{fullName} — {phone}</p>
                   <p className="text-xs text-gray-600">{address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}</p>
                 </div>
