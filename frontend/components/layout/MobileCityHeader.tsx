@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useCart } from '@/lib/hooks';
 import { useEffect, useRef, useState } from 'react';
 import { Cable, Gamepad2, Headphones, LogIn, MapPin, Search, ShoppingCart, User, UserPlus } from 'lucide-react';
@@ -34,6 +34,7 @@ export default function MobileCityHeader() {
   const { itemCount } = useCart();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Hà Nội');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -146,7 +147,7 @@ export default function MobileCityHeader() {
                   <button
                     type="button"
                     onClick={() => setUserMenuOpen((prev) => !prev)}
-                    className="flex h-10 items-center gap-2 rounded-md border border-white/10 px-3 text-white hover:bg-white/10 transition-colors"
+                    className="flex h-10 items-center gap-2 rounded-md bg-white/15 border border-white/30 px-3 text-white hover:bg-white/25 transition-colors backdrop-blur-sm"
                   >
                     <User className="h-5 w-5" />
                     <span className="text-sm font-semibold hidden sm:block">{user.firstname}</span>
@@ -187,11 +188,11 @@ export default function MobileCityHeader() {
                 </>
               )}
 
-              <Link href="/cart" className="relative flex h-10 items-center gap-2 rounded-md bg-primary-500 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-400 flex-shrink-0">
+              <Link href="/cart" className="relative flex h-10 items-center gap-2 rounded-md bg-amber-400 px-3 text-sm font-bold text-gray-900 shadow-sm transition-colors hover:bg-amber-300 flex-shrink-0">
                 <ShoppingCart className="h-5 w-5" />
                 <span className="hidden sm:block">Giỏ hàng</span>
                 {itemCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] min-w-5 h-5 px-1 rounded-full flex items-center justify-center font-bold border-2 border-primary-800">
+                  <span className="absolute -top-2 -right-2 bg-white text-primary-600 text-[10px] min-w-5 h-5 px-1 rounded-full flex items-center justify-center font-bold border-2 border-amber-400">
                     {itemCount}
                   </span>
                 )}

@@ -219,7 +219,7 @@ export async function GET(request: NextRequest) {
   const customerEmail = normalizeEmail(request.nextUrl.searchParams.get('customerEmail'));
   const paidOnly = isTruthy(request.nextUrl.searchParams.get('paidOnly'));
 
-  if (!adminAuthorized && !(customerEmail && paidOnly)) {
+  if (!adminAuthorized && !customerEmail) {
     return NextResponse.json({ error: 'Không có quyền truy cập.' }, { status: 401 });
   }
 

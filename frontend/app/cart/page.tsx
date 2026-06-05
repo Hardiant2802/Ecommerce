@@ -626,7 +626,6 @@ export default function CartPage() {
           </div>
 
           {codPendingSection}
-          {purchasedSection}
         </div>
       </div>
     );
@@ -669,7 +668,6 @@ export default function CartPage() {
         </div>
 
         {codPendingSection}
-        {purchasedSection}
       </div>
     </div>
   );

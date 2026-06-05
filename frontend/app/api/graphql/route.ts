@@ -13,7 +13,7 @@ const FRONTEND_HOSTS = new Set([
   'e-commerce-75g.pages.dev',
   'main.e-commerce-75g.pages.dev',
 ]);
-const GRAPHQL_PROXY_CACHE_TTL_MS = 2 * 60 * 1000; // 2 phút
+const GRAPHQL_PROXY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 phút
 const DEFAULT_GRAPHQL_PROXY_TIMEOUT_MS = 30_000;
 
 type CachedGraphqlResponse = {

@@ -219,9 +219,12 @@ function InternalOrderCard({ order, onConfirmDelivery }: { order: InternalOrder;
           <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
             <span className="text-lg">📦</span>
           </div>
-          <div>
-            <p className="font-semibold text-gray-900 text-sm font-mono">#{order.id.slice(0, 16).toUpperCase()}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{formatDateTime(order.createdAt)}</p>
+          <div className="min-w-0">
+            {/* Tên sản phẩm in đậm lên trước */}
+            <p className="font-bold text-gray-900 text-sm line-clamp-1">
+              {(order.items ?? []).map((it) => `${it.name} x${it.quantity}`).join(', ') || 'Không có sản phẩm'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatDateTime(order.createdAt)}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -248,7 +251,7 @@ function InternalOrderCard({ order, onConfirmDelivery }: { order: InternalOrder;
               <div key={i} className="flex justify-between items-center text-sm py-1.5 border-b border-gray-100 last:border-0">
                 <div>
                   <p className="font-medium text-gray-800">{item.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">SKU: {item.sku} · x{item.quantity}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">x{item.quantity}</p>
                 </div>
                 <span className="text-gray-700 font-medium whitespace-nowrap ml-4">
                   {formatCurrency(item.rowTotal, order.currency)}
@@ -259,12 +262,7 @@ function InternalOrderCard({ order, onConfirmDelivery }: { order: InternalOrder;
 
           {/* Paid info */}
           {order.status === 'paid' && order.paidAt && (
-            <p className="text-xs text-emerald-600">✓ Thanh toán lúc: {formatDateTime(order.paidAt)}</p>
-          )}
-
-          {/* Magento order number */}
-          {order.magentoOrderNumber && (
-            <p className="text-xs text-gray-500">Mã Magento: <span className="font-mono font-medium text-gray-700">#{order.magentoOrderNumber}</span></p>
+            <p className="text-xs text-emerald-600">✓ Đã thanh toán lúc: {formatDateTime(order.paidAt)}</p>
           )}
 
           {/* COD confirm button */}
@@ -298,13 +296,14 @@ function OrdersTab({ email }: { email: string }) {
   const [orders, setOrders] = useState<InternalOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAllPaid, setShowAllPaid] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(
-        `/api/orders/internal?paidOnly=1&limit=50&customerEmail=${encodeURIComponent(email)}`,
+        `/api/orders/internal?paidOnly=0&limit=200&customerEmail=${encodeURIComponent(email)}`,
         { cache: 'no-store' }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -366,7 +365,9 @@ function OrdersTab({ email }: { email: string }) {
   }
 
   const paidOrders = orders.filter((o) => o.status === 'paid');
-  const pendingOrders = orders.filter((o) => o.status !== 'paid');
+  const pendingOrders = orders.filter((o) => o.status === 'pending');
+  const PAID_INITIAL_SHOW = 5;
+  const visiblePaidOrders = showAllPaid ? paidOrders : paidOrders.slice(0, PAID_INITIAL_SHOW);
 
   return (
     <div className="space-y-6">
@@ -393,10 +394,22 @@ function OrdersTab({ email }: { email: string }) {
             Đã thanh toán ({paidOrders.length})
           </h3>
           <div className="space-y-3">
-            {paidOrders.map((o) => (
+            {visiblePaidOrders.map((o) => (
               <InternalOrderCard key={o.id} order={o} />
             ))}
           </div>
+
+          {paidOrders.length > PAID_INITIAL_SHOW && (
+            <button
+              type="button"
+              onClick={() => setShowAllPaid((prev) => !prev)}
+              className="w-full mt-3 py-2.5 text-sm font-semibold text-primary-600 hover:text-primary-700 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors"
+            >
+              {showAllPaid
+                ? '▲ Rút gọn'
+                : `▼ Xem thêm ${paidOrders.length - PAID_INITIAL_SHOW} đơn hàng`}
+            </button>
+          )}
         </div>
       )}
     </div>

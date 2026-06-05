@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Warm up GraphQL cache để tránh cold-start chậm
+# Chạy qua cron mỗi 10 phút
+
+BASE_URL="http://localhost:3000/api/graphql"
+
+# Warm danh sách sản phẩm tất cả categories
+for cat_id in 55 56 57 58 59 60 61 62 63 64; do
+  curl -s -o /dev/null --max-time 30 "$BASE_URL" \
+    -X POST -H "Content-Type: application/json" \
+    -d "{\"query\":\"{ products(filter:{category_id:{eq:\\\"$cat_id\\\"}},pageSize:12) { total_count items { id sku name url_key image { url } price_range { minimum_price { regular_price { value currency } } } stock_status } } }\"}"
+done
+
+# Warm trang chủ
+curl -s -o /dev/null --max-time 30 "http://localhost:3000/" 
+
+echo "[$(date)] Cache warmed"

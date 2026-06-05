@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { FaFacebookF, FaInstagram, FaYoutube, FaCcVisa, FaCcMastercard } from 'react-icons/fa';
+import { FaFacebookF, FaInstagram, FaYoutube, FaCcVisa } from 'react-icons/fa';
 import { Wallet, Landmark } from 'lucide-react';
 
 export default function Footer() {
   return (
-    <footer className="bg-primary-800 border-t border-slate-900 text-slate-100">
+    <footer className="bg-primary-600 border-t border-primary-700 text-slate-100">
       <div className="container-custom py-12 md:py-14">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
           <div>
@@ -134,27 +134,23 @@ export default function Footer() {
             <h4 className="font-semibold text-sm mb-3">Phương thức thanh toán</h4>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="flex items-center gap-2 border border-white/10 rounded-md px-3 py-2 text-slate-300 bg-white/5">
-                <FaCcVisa className="w-4 h-4 text-primary-100" />
-                <span>Visa</span>
-              </div>
-              <div className="flex items-center gap-2 border border-white/10 rounded-md px-3 py-2 text-slate-300 bg-white/5">
-                <FaCcMastercard className="w-4 h-4 text-primary-100" />
-                <span>Mastercard</span>
-              </div>
-              <div className="flex items-center gap-2 border border-white/10 rounded-md px-3 py-2 text-slate-300 bg-white/5">
-                <Wallet className="w-4 h-4 text-primary-100" />
-                <span>Momo</span>
-              </div>
-              <div className="flex items-center gap-2 border border-white/10 rounded-md px-3 py-2 text-slate-300 bg-white/5">
                 <Landmark className="w-4 h-4 text-primary-100" />
+                <span>Chuyển khoản</span>
+              </div>
+              <div className="flex items-center gap-2 border border-white/10 rounded-md px-3 py-2 text-slate-300 bg-white/5">
+                <FaCcVisa className="w-4 h-4 text-primary-100" />
                 <span>VNPay</span>
+              </div>
+              <div className="flex items-center gap-2 border border-white/10 rounded-md px-3 py-2 text-slate-300 bg-white/5 col-span-2">
+                <Wallet className="w-4 h-4 text-primary-100" />
+                <span>COD (Thanh toán khi nhận hàng)</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-primary-900 border-t border-white/10">
+      <div className="bg-primary-700 border-t border-white/10">
         <div className="container-custom py-4 text-center text-sm text-slate-400">
           <p>© 2026 AH PHONE STORE. Tất cả quyền được bảo lưu.</p>
         </div>

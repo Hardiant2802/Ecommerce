@@ -1592,7 +1592,7 @@ export default function CheckoutPage() {
     void poll();
     const timer = setInterval(() => {
       void poll();
-    }, 4000);
+    }, 3000);
 
     return () => {
       cancelled = true;
@@ -1922,14 +1922,20 @@ export default function CheckoutPage() {
                 )}
 
                 {!isBankingPaid && (
-                  <button
-                    type="button"
-                    onClick={() => internalOrder?.id ? void checkPaymentStatus(internalOrder.id) : undefined}
-                    disabled={checkingPayment}
-                    className="w-full mt-2 bg-emerald-600 text-white font-semibold py-2 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                  >
-                    {checkingPayment ? 'Đang kiểm tra giao dịch...' : 'Thanh toán đã hoàn tất'}
-                  </button>
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center justify-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-2">
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-600" />
+                      Hệ thống đang tự động kiểm tra thanh toán...
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => internalOrder?.id ? void checkPaymentStatus(internalOrder.id) : undefined}
+                      disabled={checkingPayment}
+                      className="w-full text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-60"
+                    >
+                      {checkingPayment ? 'Đang kiểm tra...' : 'Kiểm tra ngay'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -2359,14 +2365,20 @@ export default function CheckoutPage() {
                         </div>
 
                         {internalOrder.status !== 'paid' && (
-                          <button
-                            type="button"
-                            onClick={() => void checkPaymentStatus(internalOrder.id)}
-                            disabled={checkingPayment}
-                            className="w-full mt-2 bg-emerald-600 text-white font-semibold py-2 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                          >
-                            {checkingPayment ? 'Đang kiểm tra giao dịch...' : 'Thanh toán đã hoàn tất'}
-                          </button>
+                          <div className="mt-2 space-y-2">
+                            <div className="flex items-center justify-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-2">
+                              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-600" />
+                              Hệ thống đang tự động kiểm tra thanh toán...
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void checkPaymentStatus(internalOrder.id)}
+                              disabled={checkingPayment}
+                              className="w-full text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-60"
+                            >
+                              {checkingPayment ? 'Đang kiểm tra...' : 'Kiểm tra ngay'}
+                            </button>
+                          </div>
                         )}
 
                         {internalOrder.paymentStatusMessage && (
