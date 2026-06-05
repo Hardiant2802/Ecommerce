@@ -7,15 +7,18 @@ import Card from '@/components/ui/Card';
 interface NewsGridProps {
   limit?: number;
   className?: string;
+  showHeader?: boolean;
 }
 
-export default function NewsGrid({ limit = 6, className = '' }: NewsGridProps) {
+export default function NewsGrid({ limit = 6, className = '', showHeader = true }: NewsGridProps) {
   const { articles, loading, error } = useNews({ limit });
 
   if (loading) {
     return (
       <div className={`space-y-4 ${className}`}>
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Tin Tức Kinh Doanh</h2>
+        {showHeader && (
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Tin Tức Kinh Doanh</h2>
+        )}
         <div className="grid gap-4">
           {[1, 2, 3].map((i) => (
             <Card key={i}>
@@ -57,17 +60,19 @@ export default function NewsGrid({ limit = 6, className = '' }: NewsGridProps) {
 
   return (
     <div className={className}>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold text-gray-900">Tin Tức Kinh Doanh</h2>
-        <a
-          href="https://vnexpress.net/kinh-doanh"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-        >
-          Xem tất cả →
-        </a>
-      </div>
+      {showHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">Tin Tức Kinh Doanh</h2>
+          <a
+            href="https://vnexpress.net/kinh-doanh"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+          >
+            Xem tất cả →
+          </a>
+        </div>
+      )}
       
       <div className="grid gap-4">
         {articles.map((article) => (

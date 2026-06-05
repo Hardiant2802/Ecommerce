@@ -20,12 +20,12 @@ export default function Card({
     lg: 'p-8',
   };
 
-  const hoverClass = hover ? 'hover:shadow-lg transition-shadow duration-200' : '';
+  const hoverClass = hover ? 'hover:-translate-y-0.5 hover:shadow-lg transition-all duration-200' : '';
 
   return (
     <div
       className={`
-        bg-white rounded-lg shadow-sm overflow-hidden
+        bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden
         ${paddingClasses[padding]}
         ${hoverClass}
         ${className}

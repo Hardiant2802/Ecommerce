@@ -22,13 +22,13 @@ export default function Navbar() {
   return (
     <nav className="bg-white shadow-sm sticky top-0 z-50">
       <div className="container-custom">
-        <div className="flex justify-between items-center h-16">
+        <div className="flex h-16 items-center justify-between gap-3">
           {/* Logo */}
-          <Link href="/" className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
+          <Link href="/" className="flex min-w-0 items-center space-x-2">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary-600">
               <span className="text-white font-bold text-xl">M</span>
             </div>
-            <span className="text-xl font-bold text-gray-900 hidden sm:block">
+            <span className="hidden truncate text-lg font-bold text-gray-900 sm:block lg:text-xl">
               Cửa hàng điện thoại
             </span>
           </Link>
@@ -80,7 +80,7 @@ export default function Navbar() {
           </div>
 
           {/* Right Side Actions */}
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-shrink-0 items-center gap-2 sm:gap-4">
             {/* Cart */}
             <Link
               href="/cart"
@@ -124,9 +124,15 @@ export default function Navbar() {
                       d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                     />
                   </svg>
-                  <span className="hidden md:block">{user.firstname}</span>
+                  <span className="hidden max-w-28 truncate md:block">{user.firstname}</span>
                 </button>
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 hidden group-hover:block">
+                  <Link
+                    href="/account"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Thông tin người dùng
+                  </Link>
                   <button
                     onClick={logout}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -177,53 +183,53 @@ export default function Navbar() {
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden py-4 border-t">
-            <div className="flex flex-col space-y-3">
+          <div className="max-h-[calc(100vh-4rem)] overflow-y-auto border-t py-4 md:hidden">
+            <div className="flex flex-col space-y-1">
               <Link
                 href="/"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Sản phẩm
               </Link>
               <Link
                 href="/news"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Tin Tức
               </Link>
               <Link
                 href="/iphone"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 iPhone
               </Link>
               <Link
                 href="/samsung"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Samsung
               </Link>
               <Link
                 href="/xiaomi"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Xiaomi
               </Link>
               <Link
                 href="/tai-nghe"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Tai nghe
               </Link>
               <Link
                 href="/phu-kien"
-                className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Phụ kiện
@@ -231,7 +237,7 @@ export default function Navbar() {
               {!isAuthenticated && (
                 <Link
                   href="/login"
-                  className="text-gray-700 hover:text-primary-600 px-2 py-1"
+                  className="rounded-md px-2 py-2 text-gray-700 hover:bg-slate-50 hover:text-primary-600"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Đăng nhập
