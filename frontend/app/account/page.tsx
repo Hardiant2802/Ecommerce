@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/hooks';
 import { graphqlClient } from '@/lib/graphql/client';
 import { CHANGE_PASSWORD } from '@/lib/graphql/queries/auth';
@@ -77,10 +78,10 @@ function AvatarInitials({ firstname, lastname }: { firstname: string; lastname: 
 
 /* ─────────────────── tabs ─────────────────── */
 type TabId = 'info' | 'password' | 'orders';
-const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'info',     label: 'Thông tin',    icon: '👤' },
-  { id: 'password', label: 'Đổi mật khẩu', icon: '🔒' },
-  { id: 'orders',   label: 'Đơn hàng',     icon: '📦' },
+const TABS: { id: TabId; label: string; icon: string; href: string }[] = [
+  { id: 'info',     label: 'Thông tin',    icon: '👤', href: '/account/info' },
+  { id: 'password', label: 'Đổi mật khẩu', icon: '🔒', href: '/account/password' },
+  { id: 'orders',   label: 'Đơn hàng',     icon: '📦', href: '/account/orders' },
 ];
 
 /* ─────────────────── Loading Skeleton ─────────────────── */
@@ -419,7 +420,15 @@ function OrdersTab({ email }: { email: string }) {
 /* ─────────────────── Main Page ─────────────────── */
 export default function AccountPage() {
   const { user, token, isAuthenticated, loading, logout } = useAuth();
+  const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<TabId>('info');
+
+  // Xác định tab theo đường dẫn: /account/orders, /account/password, /account(/info)
+  useEffect(() => {
+    if (pathname?.includes('/account/orders')) setActiveTab('orders');
+    else if (pathname?.includes('/account/password')) setActiveTab('password');
+    else setActiveTab('info');
+  }, [pathname]);
 
   if (loading) return <LoadingSkeleton />;
   if (!isAuthenticated || !user) return <UnauthenticatedView />;
@@ -467,14 +476,14 @@ export default function AccountPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="flex border-b border-gray-100">
             {TABS.map((tab) => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              <Link key={tab.id} href={tab.href}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-medium transition-colors
                   ${activeTab === tab.id
                     ? 'text-primary-700 border-b-2 border-primary-600 bg-primary-50/50'
                     : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>
                 <span>{tab.icon}</span>
                 <span className="hidden sm:inline">{tab.label}</span>
-              </button>
+              </Link>
             ))}
           </div>
 
