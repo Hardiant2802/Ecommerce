@@ -14,7 +14,7 @@ interface FeaturedProductsProps {
 }
 
 const HOME_PHONE_CATEGORY_IDS = ['55', '56', '57', '58', '59', '60', '61', '62'];
-const HOME_FETCH_SIZE = 32;
+const HOME_FETCH_SIZE = 100;
 type SortValue = 'featured' | 'price_asc' | 'price_desc' | 'name_asc' | 'name_desc';
 
 const SORT_OPTIONS: Array<{ value: SortValue; label: string }> = [

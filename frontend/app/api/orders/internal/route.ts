@@ -325,6 +325,32 @@ export async function POST(request: NextRequest) {
 
     // COD orders are synced to Magento immediately so admin can see new orders in near realtime.
     if (paymentMethod === 'cod') {
+      // Hủy các đơn chuyển khoản đang "chờ thanh toán" cùng email (được tạo sớm để hiện QR
+      // khi khách vào trang checkout) để lịch sử không hiện 2 đơn trùng sản phẩm.
+      try {
+        const customerEmail = normalizeEmail(input.customerEmail);
+        if (customerEmail) {
+          const recentOrders = await listInternalOrders(200);
+          const staleBankingOrders = recentOrders.filter(
+            (o) =>
+              o.id !== order.id &&
+              o.status === 'pending' &&
+              o.paymentMethod === 'banking' &&
+              normalizeEmail(o.customerEmail) === customerEmail
+          );
+          await Promise.all(
+            staleBankingOrders.map((o) =>
+              updateInternalOrder(o.id, {
+                status: 'cancelled',
+                paymentStatusMessage: 'Đơn đã bị hủy do khách chuyển sang thanh toán khi nhận hàng (COD).',
+              })
+            )
+          );
+        }
+      } catch (cancelError) {
+        console.error('Cancel stale banking orders (COD) failed:', cancelError);
+      }
+
       order = (await updateInternalOrder(order.id, {
         magentoSyncStatus: 'queued',
         magentoSyncError: undefined,

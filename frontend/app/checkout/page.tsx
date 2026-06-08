@@ -856,14 +856,16 @@ export default function CheckoutPage() {
     }).catch(() => setShippingFee(null)).finally(() => setShippingLoading(false));
   }, [vtpProvince, vtpDistrict, shippingCarrier]);
 
-  const createGHNOrder = async () => {
-    if (!ghnDistrict || !ghnWard) return null;
+  const createGHNOrder = async (): Promise<{ code: string | null; error?: string }> => {
+    if (!ghnDistrict || !ghnWard) return { code: null, error: 'Thiếu thông tin quận/phường giao hàng.' };
     try {
       const items = checkoutItems.map(item => ({
         name: item.product.name,
         quantity: item.quantity,
         price: Math.round(item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value),
       }));
+      // GHN giới hạn insurance_value (giá trị khai giá) tối đa 5.000.000đ
+      const insuranceValue = Math.min(5000000, Math.round(orderTotal));
       const response = await fetch('/api/shipping/ghn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -880,20 +882,22 @@ export default function CheckoutPage() {
             to_district_id: ghnDistrict.DistrictID,
             cod_amount: paymentMethod === 'cod' ? Math.round(orderTotal + (shippingFee || 0)) : 0,
             weight: 500, length: 20, width: 15, height: 10,
-            insurance_value: Math.round(orderTotal),
+            insurance_value: insuranceValue,
             service_type_id: 2,
             items,
           },
         }),
       });
       const data = await response.json();
-      if (data.code === 200 && data.data?.order_code) return data.data.order_code;
-      return null;
-    } catch { return null; }
+      if (data.code === 200 && data.data?.order_code) return { code: data.data.order_code };
+      return { code: null, error: data.message || data.code_message_value || 'GHN từ chối tạo vận đơn.' };
+    } catch (error) {
+      return { code: null, error: error instanceof Error ? error.message : 'Lỗi kết nối GHN.' };
+    }
   };
 
-  const createVTPOrder = async () => {
-    if (!vtpProvince || !vtpDistrict || !vtpWard) return null;
+  const createVTPOrder = async (): Promise<{ code: string | null; error?: string }> => {
+    if (!vtpProvince || !vtpDistrict || !vtpWard) return { code: null, error: 'Thiếu thông tin tỉnh/quận/phường giao hàng.' };
     try {
       const response = await fetch('/api/shipping/viettelpost', {
         method: 'POST',
@@ -957,9 +961,11 @@ export default function CheckoutPage() {
         }),
       });
       const data = await response.json();
-      if (data.status === 200 && data.data?.ORDER_NUMBER) return data.data.ORDER_NUMBER;
-      return null;
-    } catch { return null; }
+      if (data.status === 200 && data.data?.ORDER_NUMBER) return { code: data.data.ORDER_NUMBER };
+      return { code: null, error: data.message || data.error || 'Viettel Post từ chối tạo vận đơn.' };
+    } catch (error) {
+      return { code: null, error: error instanceof Error ? error.message : 'Lỗi kết nối Viettel Post.' };
+    }
   };
 
   const handleVnpayPayment = async () => {
@@ -1191,6 +1197,23 @@ export default function CheckoutPage() {
   const createCodOrder = useCallback(async (): Promise<InternalOrderSummary | null> => {
     try {
       setOrderError(null);
+
+      // Nếu trước đó đã lỡ tạo sẵn đơn chuyển khoản (pending) khi vào trang,
+      // hủy nó đi để tránh lịch sử hiện 2 đơn (1 "Chờ thanh toán" + 1 "COD - Chờ giao").
+      if (internalOrder?.id && internalOrder.status === 'pending') {
+        try {
+          await fetch(`/api/orders/internal/${encodeURIComponent(internalOrder.id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'cancel' }),
+          });
+        } catch (cancelError) {
+          console.error('Cancel stale banking order failed:', cancelError);
+        }
+        clearStoredBankingOrder();
+        setInternalOrder(null);
+      }
+
       const response = await fetch('/api/orders/internal', {
         method: 'POST',
         headers: {
@@ -1218,7 +1241,7 @@ export default function CheckoutPage() {
       setOrderError(error instanceof Error ? error.message : 'Không thể tạo đơn hàng COD.');
       return null;
     }
-  }, [buildItemsPayload, currency, grandTotal, orderNote, user?.email]);
+  }, [buildItemsPayload, currency, grandTotal, internalOrder, orderNote, user?.email]);
 
   const checkPaymentStatus = useCallback(async (
     orderIdToCheck: string,
@@ -1616,9 +1639,9 @@ export default function CheckoutPage() {
   const selectedDistrictName = shippingCarrier === 'ghn' ? ghnDistrict?.DistrictName : vtpDistrict?.DISTRICT_NAME;
   const selectedWardName = shippingCarrier === 'ghn' ? ghnWard?.WardName : vtpWard?.WARDS_NAME;
 
-  const doCreateShippingOrder = async () => {
+  const doCreateShippingOrder = async (): Promise<{ code: string | null; error?: string }> => {
     if (!requiresShippingInfo) {
-      return null;
+      return { code: null };
     }
 
     if (shippingCarrier === 'ghn') return await createGHNOrder();
@@ -1639,13 +1662,15 @@ export default function CheckoutPage() {
     setConfirmLoading(true);
     try {
       if (requiresShippingInfo) {
-        const code = await doCreateShippingOrder();
-        if (!code) {
-          alert('Không thể tạo vận đơn giao hàng. Vui lòng thử lại.');
+        const shippingResult = await doCreateShippingOrder();
+        if (!shippingResult.code) {
+          alert(shippingResult.error
+            ? `Không thể tạo vận đơn giao hàng: ${shippingResult.error}`
+            : 'Không thể tạo vận đơn giao hàng. Vui lòng thử lại.');
           return;
         }
 
-        setShippingOrderCode(code);
+        setShippingOrderCode(shippingResult.code);
       } else {
         setShippingOrderCode(null);
       }

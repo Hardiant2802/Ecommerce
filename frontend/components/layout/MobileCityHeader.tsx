@@ -39,6 +39,68 @@ export default function MobileCityHeader() {
   const [location, setLocation] = useState('Hà Nội');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const [newOrderCount, setNewOrderCount] = useState(0);
+
+  // Đếm số đơn hàng mới (chưa xem) để hiện badge trên menu tài khoản
+  useEffect(() => {
+    if (!isAuthenticated || !user?.email) {
+      setNewOrderCount(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadOrderBadge = async () => {
+      try {
+        const res = await fetch(
+          `/api/orders/internal?paidOnly=0&limit=200&customerEmail=${encodeURIComponent(user.email)}`,
+          { cache: 'no-store' }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const orders: Array<{ id: string; status: string }> = Array.isArray(data?.orders) ? data.orders : [];
+        const activeOrders = orders.filter((o) => o.status === 'pending' || o.status === 'paid');
+
+        const seenKey = `ahp_seen_orders_${user.email}`;
+        let seenIds: string[] = [];
+        try {
+          seenIds = JSON.parse(localStorage.getItem(seenKey) || '[]');
+        } catch {
+          seenIds = [];
+        }
+        const unseen = activeOrders.filter((o) => !seenIds.includes(o.id));
+        if (!cancelled) setNewOrderCount(unseen.length);
+      } catch {
+        /* bỏ qua lỗi badge */
+      }
+    };
+
+    loadOrderBadge();
+    const interval = setInterval(loadOrderBadge, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, user?.email, pathname]);
+
+  // Khi mở trang đơn hàng, đánh dấu tất cả đơn là đã xem
+  const markOrdersSeen = async () => {
+    if (!user?.email) return;
+    try {
+      const res = await fetch(
+        `/api/orders/internal?paidOnly=0&limit=200&customerEmail=${encodeURIComponent(user.email)}`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const orders: Array<{ id: string; status: string }> = Array.isArray(data?.orders) ? data.orders : [];
+      const ids = orders.map((o) => o.id);
+      localStorage.setItem(`ahp_seen_orders_${user.email}`, JSON.stringify(ids));
+      setNewOrderCount(0);
+    } catch {
+      /* bỏ qua */
+    }
+  };
 
   const activeBrand = BRANDS.find((brand) => pathname === brand.href)?.slug || (pathname === '/products' ? searchParams.get('brand') : null);
 
@@ -147,10 +209,15 @@ export default function MobileCityHeader() {
                   <button
                     type="button"
                     onClick={() => setUserMenuOpen((prev) => !prev)}
-                    className="flex h-10 items-center gap-2 rounded-md bg-white/15 border border-white/30 px-3 text-white hover:bg-white/25 transition-colors backdrop-blur-sm"
+                    className="relative flex h-10 items-center gap-2 rounded-md bg-white/15 border border-white/30 px-3 text-white hover:bg-white/25 transition-colors backdrop-blur-sm"
                   >
                     <User className="h-5 w-5" />
                     <span className="text-sm font-semibold hidden sm:block">{user.firstname}</span>
+                    {newOrderCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-400 px-1 text-[11px] font-bold text-gray-900 shadow">
+                        {newOrderCount > 9 ? '9+' : newOrderCount}
+                      </span>
+                    )}
                   </button>
                   {userMenuOpen && (
                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-2 z-[60] border border-gray-100">
@@ -159,11 +226,30 @@ export default function MobileCityHeader() {
                         <p className="text-xs text-gray-500 truncate">{user.email}</p>
                       </div>
                       <Link
-                        href="/account"
+                        href="/account/info"
                         onClick={() => setUserMenuOpen(false)}
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >
                         Thông tin người dùng
+                      </Link>
+                      <Link
+                        href="/account/password"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        Đổi mật khẩu
+                      </Link>
+                      <Link
+                        href="/account/orders"
+                        onClick={() => { setUserMenuOpen(false); void markOrdersSeen(); }}
+                        className="flex items-center justify-between px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <span>Đơn hàng của tôi</span>
+                        {newOrderCount > 0 && (
+                          <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-400 px-1 text-[11px] font-bold text-gray-900">
+                            {newOrderCount > 9 ? '9+' : newOrderCount}
+                          </span>
+                        )}
                       </Link>
                       <button
                         type="button"
