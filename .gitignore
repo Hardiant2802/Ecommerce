@@ -26,6 +26,8 @@ src/var/
 *.log
 
 # Docs & temp files
-SYSTEM_DESIGN.md
+
 frontend/Dockerfile.patch
-DIAGRAMS.md
+
+
+E-commerce.zip
