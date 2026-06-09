@@ -242,7 +242,7 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
     <div>
       {toolbar}
 
-      <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4 md:gap-6">
+      <div className="grid grid-cols-2 gap-3 md:gap-6 lg:grid-cols-4">
         {displayedProducts.map((product) => {
           const resolvedImageUrl = product.image?.url ? getPrimaryProductImageUrl(product) : '';
           const imageUrl = resolvedImageUrl.includes('/images/placeholder.svg') ? '' : resolvedImageUrl;
