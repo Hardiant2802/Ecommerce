@@ -19,13 +19,9 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => storage.getAuthToken());
-  const [user, setUser] = useState<User | null>(() => storage.getAuthUser<User>());
-  const [loading, setLoading] = useState<boolean>(() => {
-    const cachedToken = storage.getAuthToken();
-    const cachedUser = storage.getAuthUser<User>();
-    return Boolean(cachedToken) && !cachedUser;
-  });
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const formatGraphqlError = (error: unknown): string => {
     if (!(error instanceof Error)) {

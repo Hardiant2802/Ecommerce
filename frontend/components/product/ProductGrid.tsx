@@ -34,7 +34,7 @@ interface ProductGridProps {
 export default function ProductGrid({ products, loading = false, currentBrand }: ProductGridProps) {
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 md:gap-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
           <ProductSkeleton key={i} />
         ))}
@@ -51,7 +51,7 @@ export default function ProductGrid({ products, loading = false, currentBrand }:
   }
 
   return (
-    <div className="grid grid-cols-1 items-stretch gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 md:gap-6">
+    <div className="grid grid-cols-2 items-stretch gap-3 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
       {products.map((product) => (
         <ProductCard key={product.id} product={product} currentBrand={currentBrand} />
       ))}
