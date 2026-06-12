@@ -12,6 +12,19 @@ export interface InternalOrderItem {
   rowTotal: number;
 }
 
+export interface InternalOrderShippingAddress {
+  fullName: string;
+  phone: string;
+  street: string;
+  ward: string;
+  district: string;
+  province: string;
+  countryCode: string;
+  provinceId?: string | number;
+  districtId?: string | number;
+  wardId?: string | number;
+}
+
 export interface InternalOrder {
   id: string;
   paymentMethod: InternalPaymentMethod;
@@ -21,6 +34,9 @@ export interface InternalOrder {
   currency: string;
   note?: string;
   customerEmail?: string;
+  shippingAddress?: InternalOrderShippingAddress;
+  shippingCarrier?: 'ghn' | 'vtp';
+  shippingFee?: number;
   items: InternalOrderItem[];
   bankName?: string;
   bankBin?: string;
@@ -46,5 +62,8 @@ export interface CreateInternalOrderInput {
   currency: string;
   note?: string;
   customerEmail?: string;
+  shippingAddress: InternalOrderShippingAddress;
+  shippingCarrier: 'ghn' | 'vtp';
+  shippingFee: number;
   items: InternalOrderItem[];
 }

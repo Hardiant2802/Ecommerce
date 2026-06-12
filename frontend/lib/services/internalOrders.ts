@@ -625,6 +625,9 @@ export async function createInternalOrder(input: CreateInternalOrderInput): Prom
 		currency: input.currency,
 		note: input.note,
 		customerEmail: input.customerEmail,
+		shippingAddress: input.shippingAddress,
+		shippingCarrier: input.shippingCarrier,
+		shippingFee: input.shippingFee,
 		items: input.items,
 		bankName: banking.bankName,
 		bankBin: banking.bankBin,
@@ -933,4 +936,3 @@ export async function markInternalOrderPaid(input: PaidUpdateInput): Promise<{
 
 	return { order: updated };
 }
-

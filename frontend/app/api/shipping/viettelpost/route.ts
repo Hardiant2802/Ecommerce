@@ -41,7 +41,10 @@ export async function POST(request: NextRequest) {
     } else if (action === 'calculate-fee') {
       endpoint = `${VTP_API}/order/getPriceAll`;
     } else if (action === 'create-order') {
-      endpoint = `${VTP_API}/order/createOrder`;
+      return NextResponse.json(
+        { error: 'Chế độ demo không tạo vận đơn thật trên Viettel Post.' },
+        { status: 403 },
+      );
     } else {
       return NextResponse.json({ error: 'Action không hợp lệ' }, { status: 400 });
     }
