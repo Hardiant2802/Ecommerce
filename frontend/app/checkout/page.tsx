@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useCart, useAuth } from '@/lib/hooks';
 import { formatPrice } from '@/lib/utils/formatters';
 import QRCode from 'react-qr-code';
+import type { InternalOrderShippingAddress } from '@/types/order';
 
 type PaymentMethod = 'cod' | 'banking' | 'vnpay';
 type SingleCheckoutMode = 'single' | 'total';
@@ -45,6 +46,9 @@ interface InternalOrderSummary {
   bankAccountNo?: string;
   bankAccountName?: string;
   magentoSyncStatus?: 'not_started' | 'queued' | 'success' | 'failed';
+  shippingAddress?: InternalOrderShippingAddress;
+  shippingCarrier?: ShippingCarrier;
+  shippingFee?: number;
 }
 
 const BANKING_ORDER_STORAGE_KEY = 'ahphone_checkout_banking_order_id';
@@ -74,6 +78,9 @@ interface VnpayPendingData {
   currency: string;
   note: string;
   customerEmail?: string;
+  shippingAddress: InternalOrderShippingAddress;
+  shippingCarrier: ShippingCarrier;
+  shippingFee: number;
   items: InternalOrderItemPayload[];
   savedAt: number;
 }
@@ -351,7 +358,6 @@ export default function CheckoutPage() {
   const [vnpayError, setVnpayError] = useState<string | null>(null);
   const [vnpayResult, setVnpayResult] = useState<{ success: boolean; message: string } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const [shippingOrderCode, setShippingOrderCode] = useState<string | null>(null);
   const [internalOrder, setInternalOrder] = useState<InternalOrderSummary | null>(null);
   const [creatingBankingOrder, setCreatingBankingOrder] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
@@ -453,17 +459,62 @@ export default function CheckoutPage() {
     const unitPrice = resolveCheckoutUnitPrice(item);
     return sum + unitPrice * quantity;
   }, 0);
-  const requiresShippingInfo = paymentMethod === 'cod';
+  const requiresShippingInfo = true;
   const shippingAmount = requiresShippingInfo ? (shippingFee || 0) : 0;
   const grandTotal = orderTotal + shippingAmount;
   const formattedTotal = formatPrice(orderTotal, currency);
   const formattedGrandTotal = formatPrice(grandTotal, currency);
+  const selectedProvinceName = shippingCarrier === 'ghn' ? ghnProvince?.ProvinceName : vtpProvince?.PROVINCE_NAME;
+  const selectedDistrictName = shippingCarrier === 'ghn' ? ghnDistrict?.DistrictName : vtpDistrict?.DISTRICT_NAME;
+  const selectedWardName = shippingCarrier === 'ghn' ? ghnWard?.WardName : vtpWard?.WARDS_NAME;
+  const shippingAddressPayload = useMemo<InternalOrderShippingAddress>(() => ({
+    fullName: fullName.trim(),
+    phone: phone.trim(),
+    street: address.trim(),
+    ward: selectedWardName || '',
+    district: selectedDistrictName || '',
+    province: selectedProvinceName || '',
+    countryCode: 'VN',
+    provinceId: shippingCarrier === 'ghn' ? ghnProvince?.ProvinceID : vtpProvince?.PROVINCE_ID,
+    districtId: shippingCarrier === 'ghn' ? ghnDistrict?.DistrictID : vtpDistrict?.DISTRICT_ID,
+    wardId: shippingCarrier === 'ghn' ? ghnWard?.WardCode : vtpWard?.WARDS_ID,
+  }), [
+    address,
+    fullName,
+    ghnDistrict?.DistrictID,
+    ghnProvince?.ProvinceID,
+    ghnWard?.WardCode,
+    phone,
+    selectedDistrictName,
+    selectedProvinceName,
+    selectedWardName,
+    shippingCarrier,
+    vtpDistrict?.DISTRICT_ID,
+    vtpProvince?.PROVINCE_ID,
+    vtpWard?.WARDS_ID,
+  ]);
+  const isAddressComplete = Boolean(
+    fullName.trim() &&
+    phone.trim() &&
+    address.trim() &&
+    selectedProvinceName &&
+    selectedDistrictName &&
+    selectedWardName
+  );
+  const hasShippingFee = shippingFee !== null && Number.isFinite(shippingFee) && shippingFee >= 0;
+  const displayShippingAddress = internalOrder?.shippingAddress || (isAddressComplete ? shippingAddressPayload : null);
   const checkoutFingerprint = [
     itemId || 'all',
     sku || 'any-sku',
     currency,
     Math.round(grandTotal),
     requiresShippingInfo ? shippingCarrier : 'no-shipping',
+    shippingAddressPayload.fullName,
+    shippingAddressPayload.phone,
+    shippingAddressPayload.street,
+    shippingAddressPayload.ward,
+    shippingAddressPayload.district,
+    shippingAddressPayload.province,
     checkoutItems
       .map((item) => {
         const quantity = resolveCheckoutItemQuantity(item.quantity);
@@ -501,6 +552,12 @@ export default function CheckoutPage() {
       router.push('/login?redirect=/checkout');
     }
   }, [authLoading, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (!fullName.trim() && user) {
+      setFullName(`${user.firstname || ''} ${user.lastname || ''}`.trim());
+    }
+  }, [fullName, user]);
 
   useEffect(() => {
     if (paymentFromQuery === 'cod') {
@@ -608,6 +665,9 @@ export default function CheckoutPage() {
             currency: pending?.currency || 'VND',
             note: pending?.note || '',
             customerEmail: pending?.customerEmail || user?.email,
+            shippingAddress: pending?.shippingAddress,
+            shippingCarrier: pending?.shippingCarrier,
+            shippingFee: pending?.shippingFee,
             items: orderItems,
             vnpayTxnId: verifyData.transactionNo || verifyData.txnRef || txnRef,
           }),
@@ -856,118 +916,6 @@ export default function CheckoutPage() {
     }).catch(() => setShippingFee(null)).finally(() => setShippingLoading(false));
   }, [vtpProvince, vtpDistrict, shippingCarrier]);
 
-  const createGHNOrder = async (): Promise<{ code: string | null; error?: string }> => {
-    if (!ghnDistrict || !ghnWard) return { code: null, error: 'Thiếu thông tin quận/phường giao hàng.' };
-    try {
-      const items = checkoutItems.map(item => ({
-        name: item.product.name,
-        quantity: item.quantity,
-        price: Math.round(item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value),
-      }));
-      // GHN giới hạn insurance_value (giá trị khai giá) tối đa 5.000.000đ
-      const insuranceValue = Math.min(5000000, Math.round(orderTotal));
-      const response = await fetch('/api/shipping/ghn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create-order',
-          payload: {
-            payment_type_id: paymentMethod === 'cod' ? 2 : 1,
-            note: orderNote || '',
-            required_note: 'KHONGCHOXEMHANG',
-            to_name: fullName,
-            to_phone: phone,
-            to_address: address,
-            to_ward_code: ghnWard.WardCode,
-            to_district_id: ghnDistrict.DistrictID,
-            cod_amount: paymentMethod === 'cod' ? Math.round(orderTotal + (shippingFee || 0)) : 0,
-            weight: 500, length: 20, width: 15, height: 10,
-            insurance_value: insuranceValue,
-            service_type_id: 2,
-            items,
-          },
-        }),
-      });
-      const data = await response.json();
-      if (data.code === 200 && data.data?.order_code) return { code: data.data.order_code };
-      return { code: null, error: data.message || data.code_message_value || 'GHN từ chối tạo vận đơn.' };
-    } catch (error) {
-      return { code: null, error: error instanceof Error ? error.message : 'Lỗi kết nối GHN.' };
-    }
-  };
-
-  const createVTPOrder = async (): Promise<{ code: string | null; error?: string }> => {
-    if (!vtpProvince || !vtpDistrict || !vtpWard) return { code: null, error: 'Thiếu thông tin tỉnh/quận/phường giao hàng.' };
-    try {
-      const response = await fetch('/api/shipping/viettelpost', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create-order',
-          payload: {
-            ORDER_NUMBER: orderId,
-            GROUPADDRESS_ID: 0,
-            CUS_ID: 0,
-            DELIVERY_DATE: new Date().toISOString(),
-            SENDER_FULLNAME: 'AH Phone Store',
-            SENDER_ADDRESS: '144 Xuân Thủy, Cầu Giấy',
-            SENDER_PHONE: '0912345678',
-            SENDER_EMAIL: '',
-            SENDER_WARD: 0,
-            SENDER_DISTRICT: 22,
-            SENDER_PROVINCE: 1,
-            SENDER_LATITUDE: 0,
-            SENDER_LONGITUDE: 0,
-            RECEIVER_FULLNAME: fullName,
-            RECEIVER_ADDRESS: address,
-            RECEIVER_PHONE: phone,
-            RECEIVER_EMAIL: '',
-            RECEIVER_WARD: vtpWard.WARDS_ID,
-            RECEIVER_DISTRICT: vtpDistrict.DISTRICT_ID,
-            RECEIVER_PROVINCE: vtpProvince.PROVINCE_ID,
-            RECEIVER_LATITUDE: 0,
-            RECEIVER_LONGITUDE: 0,
-            PRODUCT_NAME: checkoutItems.map(i => i.product.name).join(', '),
-            PRODUCT_DESCRIPTION: orderNote || '',
-            PRODUCT_QUANTITY: checkoutItems.reduce((s, i) => s + i.quantity, 0),
-            PRODUCT_PRICE: Math.round(orderTotal),
-            PRODUCT_WEIGHT: 500,
-            PRODUCT_LENGTH: 20,
-            PRODUCT_WIDTH: 15,
-            PRODUCT_HEIGHT: 10,
-            PRODUCT_TYPE: 'HH',
-            ORDER_PAYMENT: paymentMethod === 'cod' ? 3 : 1,
-            ORDER_SERVICE: 'VCN',
-            ORDER_SERVICE_ADD: '',
-            ORDER_VOUCHER: '',
-            ORDER_NOTE: orderNote || '',
-            MONEY_COLLECTION: paymentMethod === 'cod' ? Math.round(orderTotal + (shippingFee || 0)) : 0,
-            MONEY_TOTALFEE: shippingFee || 0,
-            MONEY_FEECOD: 0,
-            MONEY_FEEVAS: 0,
-            MONEY_FEEINSUR: 0,
-            MONEY_FEE: shippingFee || 0,
-            MONEY_FEEOTHER: 0,
-            MONEY_TOTALVAT: 0,
-            MONEY_TOTAL: Math.round(orderTotal),
-            LIST_ITEM: checkoutItems.map(item => ({
-              PRODUCT_NAME: item.product.name,
-              PRODUCT_PRICE: Math.round(item.product.price_range?.minimum_price?.regular_price?.value ?? item.prices.price.value),
-              PRODUCT_WEIGHT: 500,
-              PRODUCT_QUANTITY: item.quantity,
-              PRODUCT_CODE: item.product.sku || '',
-            })),
-          },
-        }),
-      });
-      const data = await response.json();
-      if (data.status === 200 && data.data?.ORDER_NUMBER) return { code: data.data.ORDER_NUMBER };
-      return { code: null, error: data.message || data.error || 'Viettel Post từ chối tạo vận đơn.' };
-    } catch (error) {
-      return { code: null, error: error instanceof Error ? error.message : 'Lỗi kết nối Viettel Post.' };
-    }
-  };
-
   const handleVnpayPayment = async () => {
     setVnpayLoading(true);
     setVnpayError(null);
@@ -990,6 +938,9 @@ export default function CheckoutPage() {
           currency,
           note: orderNote,
           customerEmail: user?.email,
+          shippingAddress: shippingAddressPayload,
+          shippingCarrier,
+          shippingFee: shippingFee || 0,
           items: buildItemsPayload(),
           savedAt: Date.now(),
         });
@@ -1155,6 +1106,9 @@ export default function CheckoutPage() {
           currency,
           note: orderNote,
           customerEmail: user?.email,
+          shippingAddress: shippingAddressPayload,
+          shippingCarrier,
+          shippingFee: shippingFee || 0,
           items: buildItemsPayload(),
         }),
       });
@@ -1192,7 +1146,18 @@ export default function CheckoutPage() {
       creatingBankingOrderRef.current = false;
       setCreatingBankingOrder(false);
     }
-  }, [buildItemsPayload, checkoutFingerprint, currency, grandTotal, isScopeStale, orderNote, user?.email]);
+  }, [
+    buildItemsPayload,
+    checkoutFingerprint,
+    currency,
+    grandTotal,
+    isScopeStale,
+    orderNote,
+    shippingAddressPayload,
+    shippingCarrier,
+    shippingFee,
+    user?.email,
+  ]);
 
   const createCodOrder = useCallback(async (): Promise<InternalOrderSummary | null> => {
     try {
@@ -1225,6 +1190,9 @@ export default function CheckoutPage() {
           currency,
           note: orderNote,
           customerEmail: user?.email,
+          shippingAddress: shippingAddressPayload,
+          shippingCarrier,
+          shippingFee: shippingFee || 0,
           items: buildItemsPayload(),
         }),
       });
@@ -1241,7 +1209,17 @@ export default function CheckoutPage() {
       setOrderError(error instanceof Error ? error.message : 'Không thể tạo đơn hàng COD.');
       return null;
     }
-  }, [buildItemsPayload, currency, grandTotal, internalOrder, orderNote, user?.email]);
+  }, [
+    buildItemsPayload,
+    currency,
+    grandTotal,
+    internalOrder,
+    orderNote,
+    shippingAddressPayload,
+    shippingCarrier,
+    shippingFee,
+    user?.email,
+  ]);
 
   const checkPaymentStatus = useCallback(async (
     orderIdToCheck: string,
@@ -1404,7 +1382,7 @@ export default function CheckoutPage() {
 
       const stored = readStoredBankingOrder();
       if (stored?.orderId) {
-        if (stored.checkoutFingerprint && stored.checkoutFingerprint !== checkoutFingerprint) {
+        if (stored.checkoutFingerprint && stored.checkoutFingerprint !== checkoutFingerprint && isAddressComplete) {
           clearStoredBankingOrder();
         } else {
           const restored = await refreshOrderStatus(stored.orderId);
@@ -1423,6 +1401,7 @@ export default function CheckoutPage() {
       }
 
       if (cancelled) return;
+      if (!isAddressComplete || !hasShippingFee) return;
       await createBankingOrder();
     };
 
@@ -1439,7 +1418,9 @@ export default function CheckoutPage() {
     checkoutFingerprint,
     createBankingOrder,
     forceNewOrder,
+    hasShippingFee,
     internalOrder,
+    isAddressComplete,
     paymentMethod,
     refreshOrderStatus,
     switchingCheckoutMode,
@@ -1623,31 +1604,6 @@ export default function CheckoutPage() {
     };
   }, [checkPaymentStatus, paymentMethod, internalOrder?.id, internalOrder?.status]);
 
-  const isAddressComplete = Boolean(
-    !requiresShippingInfo || (
-      fullName.trim() &&
-      phone.trim() &&
-      address.trim() &&
-      (shippingCarrier === 'ghn'
-        ? (ghnProvince && ghnDistrict && ghnWard)
-        : (vtpProvince && vtpDistrict && vtpWard))
-    )
-  );
-  const hasShippingFee = !requiresShippingInfo || (shippingFee !== null && Number.isFinite(shippingFee) && shippingFee >= 0);
-
-  const selectedProvinceName = shippingCarrier === 'ghn' ? ghnProvince?.ProvinceName : vtpProvince?.PROVINCE_NAME;
-  const selectedDistrictName = shippingCarrier === 'ghn' ? ghnDistrict?.DistrictName : vtpDistrict?.DISTRICT_NAME;
-  const selectedWardName = shippingCarrier === 'ghn' ? ghnWard?.WardName : vtpWard?.WARDS_NAME;
-
-  const doCreateShippingOrder = async (): Promise<{ code: string | null; error?: string }> => {
-    if (!requiresShippingInfo) {
-      return { code: null };
-    }
-
-    if (shippingCarrier === 'ghn') return await createGHNOrder();
-    return await createVTPOrder();
-  };
-
   const handleConfirmOrder = async () => {
     setOrderError(null);
     if (switchingCheckoutMode) {
@@ -1661,20 +1617,6 @@ export default function CheckoutPage() {
     setPlacingOrder(true);
     setConfirmLoading(true);
     try {
-      if (requiresShippingInfo) {
-        const shippingResult = await doCreateShippingOrder();
-        if (!shippingResult.code) {
-          alert(shippingResult.error
-            ? `Không thể tạo vận đơn giao hàng: ${shippingResult.error}`
-            : 'Không thể tạo vận đơn giao hàng. Vui lòng thử lại.');
-          return;
-        }
-
-        setShippingOrderCode(shippingResult.code);
-      } else {
-        setShippingOrderCode(null);
-      }
-
       if (paymentMethod === 'banking') {
         const bankingOrder = internalOrder || (await createBankingOrder());
         if (!bankingOrder) throw new Error('Không thể tạo mã thanh toán.');
@@ -1817,6 +1759,11 @@ export default function CheckoutPage() {
               <p className="text-gray-600 mb-1 text-sm">Phương thức: <strong>VNPAY</strong></p>
               <p className="text-gray-600 mb-1 text-sm">Ngân hàng: <strong>{searchParams.get('vnp_BankCode') || ''}</strong></p>
               <p className="text-gray-600 mb-4 text-sm">Số tiền: <strong className="text-blue-700">{formatPrice(Math.round(Number(searchParams.get('vnp_Amount') || 0) / 100), 'VND')}</strong></p>
+              {displayShippingAddress && (
+                <p className="mb-4 text-sm text-gray-600">
+                  Giao đến: <strong>{displayShippingAddress.fullName}</strong> — {displayShippingAddress.street}, {displayShippingAddress.ward}, {displayShippingAddress.district}, {displayShippingAddress.province}
+                </p>
+              )}
 
               <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left mb-6 text-sm text-blue-800">
                 <p className="font-semibold mb-1">✅ Giao dịch đã được xác nhận</p>
@@ -1857,14 +1804,9 @@ export default function CheckoutPage() {
               {bankingPending ? 'Đơn hàng đã tạo, chờ chuyển khoản' : 'Đặt hàng thành công!'}
             </h2>
             <p className="mb-1 break-words text-gray-600">Mã đơn hàng: <strong className="text-primary-700">{activeOrderId}</strong></p>
-            {shippingOrderCode && (
-              <p className="mb-1 break-words text-sm text-gray-600">
-                Mã vận đơn {shippingCarrier === 'ghn' ? 'GHN' : 'Viettel Post'}: <strong className="text-blue-600">{shippingOrderCode}</strong>
-              </p>
-            )}
-            {requiresShippingInfo && (
+            {displayShippingAddress && (
               <p className="mb-1 text-sm text-gray-600">
-                Giao đến: <strong>{fullName}</strong> — {address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}
+                Giao đến: <strong>{displayShippingAddress.fullName}</strong> — {displayShippingAddress.street}, {displayShippingAddress.ward}, {displayShippingAddress.district}, {displayShippingAddress.province}
               </p>
             )}
             <p className="text-gray-600 mb-4 text-sm">Phương thức: {paymentMethodLabel[paymentMethod]}</p>
@@ -1997,32 +1939,35 @@ export default function CheckoutPage() {
           <div className="flex flex-col gap-4 order-2 md:order-1">
 
             {/* Thông tin giao hàng */}
-            {paymentMethod === 'cod' && (
+            {requiresShippingInfo && (
             <div className="order-2 space-y-3 rounded-xl bg-white p-4 shadow-sm sm:p-5">
               <h2 className="font-bold text-gray-900">Thông tin giao hàng</h2>
+              <p className="text-xs text-gray-500">
+                Vui lòng điền đầy đủ các thông tin có dấu <span className="font-semibold text-red-600">*</span>.
+              </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Họ tên *</label>
-                  <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nguyễn Văn A"
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Họ tên <span className="text-red-600">*</span></label>
+                  <input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nguyễn Văn A"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Số điện thoại *</label>
-                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="0912345678"
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Số điện thoại <span className="text-red-600">*</span></label>
+                  <input type="tel" required value={phone} onChange={e => setPhone(e.target.value)} placeholder="0912345678"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Địa chỉ cụ thể *</label>
-                <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Số nhà, tên đường..."
+                <label className="block text-xs font-medium text-gray-700 mb-1">Địa chỉ cụ thể <span className="text-red-600">*</span></label>
+                <input type="text" required value={address} onChange={e => setAddress(e.target.value)} placeholder="Số nhà, tên đường..."
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
 
               {/* Chọn đơn vị vận chuyển */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-2">Đơn vị vận chuyển *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-2">Đơn vị vận chuyển <span className="text-red-600">*</span></label>
                 <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
                   <button type="button" onClick={() => setShippingCarrier('ghn')}
                     className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${shippingCarrier === 'ghn' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
@@ -2039,24 +1984,24 @@ export default function CheckoutPage() {
               {shippingCarrier === 'ghn' && (
                 <>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Tỉnh/Thành phố *</label>
-                    <select value={ghnProvince?.ProvinceID || ''} onChange={e => setGhnProvince(ghnProvinces.find(p => p.ProvinceID === Number(e.target.value)) || null)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Tỉnh/Thành phố <span className="text-red-600">*</span></label>
+                    <select required value={ghnProvince?.ProvinceID || ''} onChange={e => setGhnProvince(ghnProvinces.find(p => p.ProvinceID === Number(e.target.value)) || null)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
                       <option value="">-- Chọn tỉnh/thành --</option>
                       {ghnProvinces.map(p => <option key={p.ProvinceID} value={p.ProvinceID}>{p.ProvinceName}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Quận/Huyện *</label>
-                    <select value={ghnDistrict?.DistrictID || ''} onChange={e => setGhnDistrict(ghnDistricts.find(d => d.DistrictID === Number(e.target.value)) || null)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Quận/Huyện <span className="text-red-600">*</span></label>
+                    <select required value={ghnDistrict?.DistrictID || ''} onChange={e => setGhnDistrict(ghnDistricts.find(d => d.DistrictID === Number(e.target.value)) || null)}
                       disabled={!ghnProvince} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100">
                       <option value="">-- Chọn quận/huyện --</option>
                       {ghnDistricts.map(d => <option key={d.DistrictID} value={d.DistrictID}>{d.DistrictName}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Phường/Xã *</label>
-                    <select value={ghnWard?.WardCode || ''} onChange={e => setGhnWard(ghnWards.find(w => w.WardCode === e.target.value) || null)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Phường/Xã <span className="text-red-600">*</span></label>
+                    <select required value={ghnWard?.WardCode || ''} onChange={e => setGhnWard(ghnWards.find(w => w.WardCode === e.target.value) || null)}
                       disabled={!ghnDistrict} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100">
                       <option value="">-- Chọn phường/xã --</option>
                       {ghnWards.map(w => <option key={w.WardCode} value={w.WardCode}>{w.WardName}</option>)}
@@ -2069,24 +2014,24 @@ export default function CheckoutPage() {
               {shippingCarrier === 'vtp' && (
                 <>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Tỉnh/Thành phố *</label>
-                    <select value={vtpProvince?.PROVINCE_ID || ''} onChange={e => setVtpProvince(vtpProvinces.find(p => p.PROVINCE_ID === Number(e.target.value)) || null)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Tỉnh/Thành phố <span className="text-red-600">*</span></label>
+                    <select required value={vtpProvince?.PROVINCE_ID || ''} onChange={e => setVtpProvince(vtpProvinces.find(p => p.PROVINCE_ID === Number(e.target.value)) || null)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
                       <option value="">-- Chọn tỉnh/thành --</option>
                       {vtpProvinces.map(p => <option key={p.PROVINCE_ID} value={p.PROVINCE_ID}>{p.PROVINCE_NAME}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Quận/Huyện *</label>
-                    <select value={vtpDistrict?.DISTRICT_ID || ''} onChange={e => setVtpDistrict(vtpDistricts.find(d => d.DISTRICT_ID === Number(e.target.value)) || null)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Quận/Huyện <span className="text-red-600">*</span></label>
+                    <select required value={vtpDistrict?.DISTRICT_ID || ''} onChange={e => setVtpDistrict(vtpDistricts.find(d => d.DISTRICT_ID === Number(e.target.value)) || null)}
                       disabled={!vtpProvince} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100">
                       <option value="">-- Chọn quận/huyện --</option>
                       {vtpDistricts.map(d => <option key={d.DISTRICT_ID} value={d.DISTRICT_ID}>{d.DISTRICT_NAME}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Phường/Xã *</label>
-                    <select value={vtpWard?.WARDS_ID || ''} onChange={e => setVtpWard(vtpWards.find(w => w.WARDS_ID === Number(e.target.value)) || null)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Phường/Xã <span className="text-red-600">*</span></label>
+                    <select required value={vtpWard?.WARDS_ID || ''} onChange={e => setVtpWard(vtpWards.find(w => w.WARDS_ID === Number(e.target.value)) || null)}
                       disabled={!vtpDistrict} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100">
                       <option value="">-- Chọn phường/xã --</option>
                       {vtpWards.map(w => <option key={w.WARDS_ID} value={w.WARDS_ID}>{w.WARDS_NAME}</option>)}
@@ -2417,11 +2362,11 @@ export default function CheckoutPage() {
                 <></>
               )}
 
-              {isAddressComplete && paymentMethod === 'cod' && (
+              {displayShippingAddress && (
                 <div className="bg-gray-50 rounded-lg p-3 space-y-1 border border-gray-200">
                   <p className="text-xs font-semibold text-gray-700">Giao đến:</p>
-                  <p className="text-xs text-gray-600">{fullName} — {phone}</p>
-                  <p className="text-xs text-gray-600">{address}, {selectedWardName}, {selectedDistrictName}, {selectedProvinceName}</p>
+                  <p className="text-xs text-gray-600">{displayShippingAddress.fullName} — {displayShippingAddress.phone}</p>
+                  <p className="text-xs text-gray-600">{displayShippingAddress.street}, {displayShippingAddress.ward}, {displayShippingAddress.district}, {displayShippingAddress.province}</p>
                 </div>
               )}
               {paymentMethod !== 'vnpay' && <p className="text-xs text-gray-500">Đơn hàng sẽ được xử lý trong 24 giờ làm việc sau khi đặt hàng.</p>}

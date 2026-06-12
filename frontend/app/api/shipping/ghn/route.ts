@@ -17,6 +17,23 @@ function parseUnknownJsonPayload(raw: string): unknown {
   }
 }
 
+function removeInvalidProvinces(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') return payload;
+
+  const response = payload as { data?: unknown };
+  if (!Array.isArray(response.data)) return payload;
+
+  return {
+    ...response,
+    data: response.data.filter((province) => {
+      if (!province || typeof province !== 'object') return true;
+
+      const item = province as { ProvinceID?: unknown; ProvinceName?: unknown };
+      return item.ProvinceID !== 2002 && item.ProvinceName !== 'Hà Nội 02';
+    }),
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!GHN_TOKEN || !Number.isFinite(GHN_SHOP_ID) || GHN_SHOP_ID <= 0) {
@@ -38,7 +55,10 @@ export async function POST(request: NextRequest) {
     } else if (action === 'get-ward') {
       endpoint = `${GHN_API}/master-data/ward`;
     } else if (action === 'create-order') {
-      endpoint = `${GHN_API}/v2/shipping-order/create`;
+      return NextResponse.json(
+        { error: 'Chế độ demo không tạo vận đơn thật trên GHN.' },
+        { status: 403 },
+      );
     } else {
       return NextResponse.json({ error: 'Action không hợp lệ' }, { status: 400 });
     }
@@ -65,7 +85,8 @@ export async function POST(request: NextRequest) {
     });
 
     const responseText = await response.text();
-    const data = parseUnknownJsonPayload(responseText);
+    const parsedData = parseUnknownJsonPayload(responseText);
+    const data = action === 'get-province' ? removeInvalidProvinces(parsedData) : parsedData;
 
     return NextResponse.json(data, { status: response.status });
   } catch (error) {

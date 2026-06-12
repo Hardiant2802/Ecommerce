@@ -419,12 +419,16 @@ async function magentoGraphql<T>(query: string, variables?: Record<string, unkno
 }
 
 function resolveCustomerInfo(order: InternalOrder) {
-  const fullName = (process.env.MAGENTO_SYNC_FULLNAME || '').trim();
+  const fullName = (order.shippingAddress?.fullName || process.env.MAGENTO_SYNC_FULLNAME || '').trim();
   const split = fullName.split(/\s+/).filter(Boolean);
-  const firstname = (process.env.MAGENTO_SYNC_FIRSTNAME || split[0] || '').trim();
-  const lastname = (process.env.MAGENTO_SYNC_LASTNAME || split.slice(1).join(' ') || '').trim();
+  const firstname = (order.shippingAddress ? split[0] : process.env.MAGENTO_SYNC_FIRSTNAME || split[0] || '').trim();
+  const lastname = (
+    order.shippingAddress
+      ? split.slice(1).join(' ') || split[0]
+      : process.env.MAGENTO_SYNC_LASTNAME || split.slice(1).join(' ') || split[0] || ''
+  ).trim();
   const email = (order.customerEmail || process.env.MAGENTO_SYNC_EMAIL || '').trim();
-  const telephone = (process.env.MAGENTO_SYNC_TELEPHONE || '').trim();
+  const telephone = (order.shippingAddress?.phone || process.env.MAGENTO_SYNC_TELEPHONE || '').trim();
 
   if (!email || !firstname || !lastname || !telephone) {
     throw new Error('MAGENTO_SYNC_CUSTOMER_INFO_INCOMPLETE');
@@ -438,7 +442,18 @@ function resolveCustomerInfo(order: InternalOrder) {
   };
 }
 
-function resolveAddress() {
+function resolveAddress(order: InternalOrder) {
+  const shippingAddress = order.shippingAddress;
+  if (shippingAddress) {
+    return {
+      street: [shippingAddress.street, shippingAddress.ward].filter(Boolean),
+      city: shippingAddress.district,
+      region: shippingAddress.province,
+      postcode: process.env.MAGENTO_SYNC_POSTCODE || '100000',
+      country_code: shippingAddress.countryCode || 'VN',
+    };
+  }
+
   return {
     street: [process.env.MAGENTO_SYNC_STREET || 'Ha Noi'],
     city: process.env.MAGENTO_SYNC_CITY || 'Ha Noi',
@@ -502,7 +517,7 @@ export async function syncInternalOrderToMagento(order: InternalOrder): Promise<
     }
 
     const customer = resolveCustomerInfo(order);
-    const address = resolveAddress();
+    const address = resolveAddress(order);
 
     await magentoGraphql(SET_GUEST_EMAIL_ON_CART_MUTATION, {
       cartId,

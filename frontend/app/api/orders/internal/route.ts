@@ -14,6 +14,7 @@ import {
   CreateInternalOrderInput,
   InternalOrder,
   InternalOrderItem,
+  InternalOrderShippingAddress,
   InternalPaymentMethod,
 } from '@/types/order';
 
@@ -25,6 +26,9 @@ interface CreateOrderBody {
   currency: string;
   note?: string;
   customerEmail?: string;
+  shippingAddress?: InternalOrderShippingAddress;
+  shippingCarrier?: 'ghn' | 'vtp';
+  shippingFee?: number;
   items: InternalOrderItem[];
   vnpayTxnId?: string;
 }
@@ -57,6 +61,35 @@ function sanitizeItems(items: unknown): InternalOrderItem[] {
       };
     })
     .filter((item): item is InternalOrderItem => !!item);
+}
+
+function sanitizeText(value: unknown, maxLength: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function sanitizeShippingAddress(value: unknown): InternalOrderShippingAddress | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const raw = value as Partial<InternalOrderShippingAddress>;
+  const address: InternalOrderShippingAddress = {
+    fullName: sanitizeText(raw.fullName, 255),
+    phone: sanitizeText(raw.phone, 32),
+    street: sanitizeText(raw.street, 500),
+    ward: sanitizeText(raw.ward, 255),
+    district: sanitizeText(raw.district, 255),
+    province: sanitizeText(raw.province, 255),
+    countryCode: sanitizeText(raw.countryCode, 2).toUpperCase() || 'VN',
+  };
+
+  if (!address.fullName || !address.phone || !address.street || !address.ward || !address.district || !address.province) {
+    return null;
+  }
+
+  if (typeof raw.provinceId === 'string' || typeof raw.provinceId === 'number') address.provinceId = raw.provinceId;
+  if (typeof raw.districtId === 'string' || typeof raw.districtId === 'number') address.districtId = raw.districtId;
+  if (typeof raw.wardId === 'string' || typeof raw.wardId === 'number') address.wardId = raw.wardId;
+
+  return address;
 }
 
 function resolveOrderAmount(baseAmount: number, paymentMethod: InternalPaymentMethod): number {
@@ -302,6 +335,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Đơn hàng không có sản phẩm hợp lệ.' }, { status: 400 });
     }
 
+    const shippingAddress = sanitizeShippingAddress(body.shippingAddress);
+    const shippingCarrier = body.shippingCarrier === 'ghn' || body.shippingCarrier === 'vtp'
+      ? body.shippingCarrier
+      : null;
+    const shippingFee = Number(body.shippingFee);
+
+    if (!shippingAddress || !shippingCarrier || !Number.isFinite(shippingFee) || shippingFee < 0) {
+      return NextResponse.json({ error: 'Thông tin giao hàng không hợp lệ hoặc chưa đầy đủ.' }, { status: 400 });
+    }
+
     const currency = typeof body.currency === 'string' && body.currency.trim() ? body.currency.trim() : 'VND';
     const amountFromItems = sanitizedItems.reduce((sum, item) => sum + item.rowTotal, 0);
     const amountFromClient = Number(body.amount || 0);
@@ -318,6 +361,9 @@ export async function POST(request: NextRequest) {
       currency,
       note: typeof body.note === 'string' ? body.note.trim() : undefined,
       customerEmail: typeof body.customerEmail === 'string' ? body.customerEmail.trim() : undefined,
+      shippingAddress,
+      shippingCarrier,
+      shippingFee: Math.round(shippingFee),
       items: sanitizedItems,
     };
 

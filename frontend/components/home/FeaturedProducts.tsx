@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type MouseEvent } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { graphqlClient } from '@/lib/graphql/client';
 import { GET_PRODUCTS } from '@/lib/graphql/queries/products';
 import { getPrimaryProductImageUrl } from '@/lib/utils/image';
 import { formatPrice } from '@/lib/utils/formatters';
 import { buildProductPath } from '@/lib/utils/productRouting';
+import { useCart, useAuth } from '@/lib/hooks';
+import { useToast } from '@/context/ToastContext';
 import { Product } from '@/types/product';
 
 interface FeaturedProductsProps {
@@ -51,10 +54,15 @@ function shuffleBySeed(items: Product[], seed: string): Product[] {
 }
 
 export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsProps) {
+  const router = useRouter();
+  const { addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
+  const { showToast } = useToast();
   const PAGE_SIZE = 16;
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [addingSkus, setAddingSkus] = useState<Set<string>>(() => new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -179,6 +187,50 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
     loadProducts(currentPage + 1, true);
   };
 
+  const handleAddToCart = async (
+    event: MouseEvent<HTMLButtonElement>,
+    product: Product,
+    productUrl: string
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (product.stock_status === 'OUT_OF_STOCK' || addingSkus.has(product.sku)) return;
+
+    if (!isAuthenticated) {
+      router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
+      return;
+    }
+
+    setAddingSkus((previous) => new Set(previous).add(product.sku));
+
+    try {
+      await addToCart(product.sku, 1);
+      showToast(`Đã thêm "${product.name}" vào giỏ hàng`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+      if (message.includes('auth_required') || message.includes('unauthorized') || message.includes('customer token')) {
+        router.push(`/login?redirect=${encodeURIComponent(productUrl)}`);
+        return;
+      }
+
+      if (message.includes('required option') || message.includes("weren't entered")) {
+        router.push(productUrl);
+        return;
+      }
+
+      console.error('Error adding to cart:', error);
+      showToast('Không thể thêm sản phẩm vào giỏ hàng', 'error');
+    } finally {
+      setAddingSkus((previous) => {
+        const next = new Set(previous);
+        next.delete(product.sku);
+        return next;
+      });
+    }
+  };
+
   const displayedProducts = isSearching ? products : products.slice(0, visibleCount);
 
   const toolbar = (
@@ -247,6 +299,8 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
           const resolvedImageUrl = product.image?.url ? getPrimaryProductImageUrl(product) : '';
           const imageUrl = resolvedImageUrl.includes('/images/placeholder.svg') ? '' : resolvedImageUrl;
           const productUrl = buildProductPath(product);
+          const inStock = product.stock_status !== 'OUT_OF_STOCK';
+          const adding = addingSkus.has(product.sku);
 
           return (
             <Link
@@ -292,8 +346,13 @@ export default function FeaturedProducts({ searchQuery = '' }: FeaturedProductsP
                   </div>
 
                   <div className="mt-auto">
-                    <button className="w-full rounded-md bg-primary-800 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-900">
-                      Mua
+                    <button
+                      type="button"
+                      onClick={(event) => handleAddToCart(event, product, productUrl)}
+                      disabled={!inStock || adding}
+                      className="w-full rounded-md bg-primary-800 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-900 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {adding ? 'Đang thêm...' : inStock ? 'Mua' : 'Hết hàng'}
                     </button>
                   </div>
                 </div>
