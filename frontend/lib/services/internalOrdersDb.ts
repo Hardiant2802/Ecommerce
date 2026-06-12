@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
-import type { InternalOrder, InternalOrderItem } from '@/types/order';
+import type { InternalOrder, InternalOrderItem, InternalOrderShippingAddress } from '@/types/order';
 
 interface InternalOrdersDbConfig {
   host: string;
@@ -19,6 +19,9 @@ interface InternalOrderRow extends RowDataPacket {
   currency: string;
   note: string | null;
   customer_email: string | null;
+  shipping_address_json: string | null;
+  shipping_carrier: string | null;
+  shipping_fee: number | string | null;
   bank_name: string | null;
   bank_bin: string | null;
   bank_account_no: string | null;
@@ -64,6 +67,39 @@ function toOptionalNumber(value: unknown): number | undefined {
 
 function normalizePaymentCodeCompact(value: string): string {
   return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function parseShippingAddress(raw: string | null): InternalOrderShippingAddress | undefined {
+  if (!raw) return undefined;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<InternalOrderShippingAddress>;
+    if (
+      !parsed.fullName ||
+      !parsed.phone ||
+      !parsed.street ||
+      !parsed.ward ||
+      !parsed.district ||
+      !parsed.province
+    ) {
+      return undefined;
+    }
+
+    return {
+      fullName: parsed.fullName,
+      phone: parsed.phone,
+      street: parsed.street,
+      ward: parsed.ward,
+      district: parsed.district,
+      province: parsed.province,
+      countryCode: parsed.countryCode || 'VN',
+      provinceId: parsed.provinceId,
+      districtId: parsed.districtId,
+      wardId: parsed.wardId,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function getDbConfig(): InternalOrdersDbConfig | null {
@@ -178,6 +214,9 @@ async function ensureSchema(): Promise<boolean> {
           currency VARCHAR(16) NOT NULL,
           note TEXT NULL,
           customer_email VARCHAR(255) NULL,
+          shipping_address_json TEXT NULL,
+          shipping_carrier VARCHAR(16) NULL,
+          shipping_fee DECIMAL(18,2) NULL,
           bank_name VARCHAR(128) NULL,
           bank_bin VARCHAR(32) NULL,
           bank_account_no VARCHAR(128) NULL,
@@ -199,6 +238,13 @@ async function ensureSchema(): Promise<boolean> {
           KEY idx_ah_internal_orders_customer_email (customer_email),
           KEY idx_ah_internal_orders_created_at (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+
+      await pool.execute(`
+        ALTER TABLE ah_internal_orders
+          ADD COLUMN IF NOT EXISTS shipping_address_json TEXT NULL AFTER customer_email,
+          ADD COLUMN IF NOT EXISTS shipping_carrier VARCHAR(16) NULL AFTER shipping_address_json,
+          ADD COLUMN IF NOT EXISTS shipping_fee DECIMAL(18,2) NULL AFTER shipping_carrier;
       `);
 
       await pool.execute(`
@@ -238,6 +284,9 @@ function mapRowToOrder(row: InternalOrderRow, items: InternalOrderItem[]): Inter
     currency: row.currency,
     note: row.note || undefined,
     customerEmail: row.customer_email || undefined,
+    shippingAddress: parseShippingAddress(row.shipping_address_json),
+    shippingCarrier: row.shipping_carrier === 'ghn' || row.shipping_carrier === 'vtp' ? row.shipping_carrier : undefined,
+    shippingFee: row.shipping_fee === null ? undefined : toNumber(row.shipping_fee),
     items,
     bankName: row.bank_name || undefined,
     bankBin: row.bank_bin || undefined,
@@ -328,6 +377,9 @@ export async function upsertInternalOrderToDb(order: InternalOrder): Promise<Int
             currency,
             note,
             customer_email,
+            shipping_address_json,
+            shipping_carrier,
+            shipping_fee,
             bank_name,
             bank_bin,
             bank_account_no,
@@ -344,7 +396,7 @@ export async function upsertInternalOrderToDb(order: InternalOrder): Promise<Int
             magento_order_number,
             magento_quote_id,
             magento_sync_error
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             payment_method = VALUES(payment_method),
             payment_code = VALUES(payment_code),
@@ -354,6 +406,9 @@ export async function upsertInternalOrderToDb(order: InternalOrder): Promise<Int
             currency = VALUES(currency),
             note = VALUES(note),
             customer_email = VALUES(customer_email),
+            shipping_address_json = VALUES(shipping_address_json),
+            shipping_carrier = VALUES(shipping_carrier),
+            shipping_fee = VALUES(shipping_fee),
             bank_name = VALUES(bank_name),
             bank_bin = VALUES(bank_bin),
             bank_account_no = VALUES(bank_account_no),
@@ -381,6 +436,9 @@ export async function upsertInternalOrderToDb(order: InternalOrder): Promise<Int
           order.currency,
           order.note || null,
           order.customerEmail || null,
+          order.shippingAddress ? JSON.stringify(order.shippingAddress) : null,
+          order.shippingCarrier || null,
+          order.shippingFee ?? null,
           order.bankName || null,
           order.bankBin || null,
           order.bankAccountNo || null,
@@ -448,6 +506,9 @@ export async function getInternalOrderFromDb(orderId: string): Promise<InternalO
           currency,
           note,
           customer_email,
+          shipping_address_json,
+          shipping_carrier,
+          shipping_fee,
           bank_name,
           bank_bin,
           bank_account_no,
@@ -497,6 +558,9 @@ export async function listInternalOrdersFromDb(limit = 50): Promise<InternalOrde
           currency,
           note,
           customer_email,
+          shipping_address_json,
+          shipping_carrier,
+          shipping_fee,
           bank_name,
           bank_bin,
           bank_account_no,
